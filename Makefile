@@ -5,11 +5,11 @@ CC=/home/yury/toolchain/arm-indigo-linux-gnueabi/bin/arm-indigo-linux-gnueabi-gc
 default: indigo-gpioperiph.ko relay
 
 indigo-gpioperiph.ko: indigo-gpioperiph.c indigo-gpioperiph.h
-        make ARCH=arm CROSS_COMPILE=/home/yury/toolchain/arm-indigo-linux-gnueabi/bin/arm-indigo-linux-gnueabi- -C linux M=`pwd`
-        strings piopins.ko | grep vermagic
+	make ARCH=arm CROSS_COMPILE=/home/yury/toolchain/arm-indigo-linux-gnueabi/bin/arm-indigo-linux-gnueabi- -C linux M=`pwd`
+	strings piopins.ko | grep vermagic
 
 clean:
-        make ARCH=arm CROSS_COMPILE=/home/yury/toolchain/arm-indigo-linux-gnueabi/bin/arm-indigo-linux-gnueabi- -C linux M=`pwd` clean
-        
+	make ARCH=arm CROSS_COMPILE=/home/yury/toolchain/arm-indigo-linux-gnueabi/bin/arm-indigo-linux-gnueabi- -C linux M=`pwd` clean
+
 install: default
-        lftp -f ftp-script-install
+	lftp -f ftp-script-install

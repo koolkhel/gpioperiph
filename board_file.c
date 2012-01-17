@@ -42,6 +42,14 @@ struct gpio_periph indigo_all_peripherals [][] = {
 					.flags = GPIOF_DIR_INPUT | GPIOF_PULLUP
 				}
 			}
+		},
+		{
+			.kind = INDIGO_PERIPH_KIND_POWER,
+			.name = "power",
+			.description = "LM-something",
+			.setup = setup_power,
+			.pins = {
+			}
 		}
 	},
 	{ /* revision DEVICE_2_0 -- 4 */
@@ -57,12 +65,13 @@ void board_init()
 	/* need to show how our device init should work */
 	int i;
 
-	struct gpio_peripheral *periph,
-		gpio_peripheral **board_peripherals;
+	struct gpio_peripheral *periph;
 
-	board_peripherals = indigo_all_peripherals[system_rev];
+	indigo_gpio_peripheral_init();
+
 	for (i = 0; i < ARRAY_SIZE(indigo_all_peripherals[system_rev]); i++) {
-		periph = board_peripherals[i];
-		periph->setup(periph);
+		periph = create_gpio_peripheral_obj(indigo_all_peripherals[system_rev][i]);
+		printk(KERN_ERR "indigo gpioperiph: %s peripheral %s added\n",
+		       periph->name, periph->description);
 	}
 }

@@ -1,10 +1,13 @@
 #ifndef _INDIGO_GPIOPERIPH_H
 #define _INDIGO_GPIOPERIPH_H
 
-#include <linux/gpio.h>
+#include <asm/gpio.h>
 #include <linux/kobject.h>
 #include <linux/sysfs.h>
 #include <linux/list.h>
+#include <linux/sched.h>
+#include <linux/workqueue.h>
+#include <linux/spinlock.h>
 
 #define INDIGO_MAX_GPIOPERIPH_PIN_COUNT 32
 #define INDIGO_NO_PIN 255
@@ -60,14 +63,26 @@ enum indigo_gpioperiph_command_t {
 	INDIGO_COMMAND_CHECK_AND_POWER_ON /* проверить статус и если 0 -- включить */
 };
 
-struct gpio_peripheral_attribute;
+struct gpio_peripheral_obj;
+
+/* a custom attribute that works just for a struct foo_obj. */
+struct gpio_peripheral_attribute {
+        struct attribute attr;
+        ssize_t (*show)(struct gpio_peripheral_obj *peripheral_obj,
+			struct gpio_peripheral_attribute *attr,
+			char *buf);
+        ssize_t (*store)(struct gpio_peripheral_obj *peripheral_obj,
+			 struct gpio_peripheral_attribute *attr,
+			 const char *buf, size_t count);
+};
+#define to_gpio_peripheral_attr(x) container_of(x, struct gpio_peripheral_attribute, attr)
 
 struct indigo_periph_pin {
 	const char *description; /* “power_key”, “status”, “NET_ANT” */
 
 	const char *schematics_name; /* симлинк с названием из схемы, тогда будет */
 	int pin_no;
-	indigo_pin_function_t function; /* <- по этому буду искать какой пин
+	enum indigo_pin_function_t function; /* <- по этому буду искать какой пин
 					 * дёрнуть при включении девайса,
 					 * как ресурс примерно */
 	int flags; /* INVERT, GPIO_INPUT, GPIO_OUTPUT */
@@ -81,14 +96,15 @@ struct indigo_periph_pin {
  */
 
 struct gpio_peripheral {
-	indigo_gpioperiph_kind_t kind; /* 1 == GSM, 2 == GPS, 3 == ? */
+	enum indigo_gpioperiph_kind_t kind; /* 1 == GSM, 2 == GPS, 3 == ? */
 	const char *name; /* “gsm”, “gps”, маленькими буквами */
 	const char *description; /* “Sim900 GSM”, “NVC08-CSM”, etc */
-	void *(*setup)(struct gpio_peripheral *);
-	void *(*power_on)(struct gpio_peripheral *); /*как включить устройство */
-	void *(*power_off)(struct gpio_peripheral *); /* как выключить устройство */
-	void *(*reset)(struct gpio_peripheral *); /* перевключить устройство */
-	void *(*status)(struct gpio_peripheral *); /* 1 -- включено, 0 -- выключено */
+	int (*setup)(struct gpio_peripheral *);
+	int (*power_on)(const struct gpio_peripheral *); /*как включить устройство */
+	int (*power_off)(const struct gpio_peripheral *); /* как выключить устройство */
+	int (*reset)(const struct gpio_peripheral *); /* перевключить устройство */
+	int (*status)(const struct gpio_peripheral *); /* 1 -- включено, 0 -- выключено */
+	int (*check_and_power_on)(const struct gpio_peripheral *); /* включить, если не включено */
 
 	/* необходимые для основных операций над устройством */
 	struct indigo_periph_pin pins[INDIGO_MAX_GPIOPERIPH_PIN_COUNT];
@@ -105,17 +121,17 @@ struct gpio_peripheral_obj {
 	/* всё, что надо инициализировать в куче -- в _obj, создавать в конструкторе */
 	/* очередь команд, выделять через alloc_workqueue,
 	 * max_active = 1 */
-	struct workqueue_struct wq;
+	struct workqueue_struct *wq;
 	struct completion command_list_empty;
 	// init_completion(); при создании
 	// INIT_COMPLETION(); при повторном использовании, а оно у нас будет
-	struct spinlock_t command_list_lock; // spin_lock_init
+	spinlock_t command_list_lock; // spin_lock_init
 
 };
 #define to_gpio_peripheral_obj(x) container_of(x, struct gpio_peripheral_obj, kobj)
 
 struct gpio_peripheral_command {
-	indigo_gpioperiph_command_t cmd;
+	enum indigo_gpioperiph_command_t cmd;
 
 	struct gpio_peripheral *peripheral;
 
@@ -127,25 +143,13 @@ struct gpio_peripheral_command {
 struct indigo_gpio_sequence_step {
 	const char *step_no;
 	const char *step_desc;
-	const gpio_peripheral *periph; /* NULL for trace step */
-	indigo_pin_function_t function;
+	const struct gpio_peripheral *periph; /* NULL for trace step */
+	enum indigo_pin_function_t function;
 	int value;
 	int mandatory;
 	int sleep_ms;
 	int timeout_ms;
 };
-
-/* a custom attribute that works just for a struct foo_obj. */
-struct gpio_peripheral_attribute {
-        struct attribute attr;
-        ssize_t (*show)(struct gpio_peripheral *peripheral,
-			struct gpio_peripheral_attribute *attr,
-			char *buf);
-        ssize_t (*store)(struct gpio_peripheral *peripheral,
-			 struct gpio_peripheral_attribute *attr,
-			 const char *buf, size_t count);
-};
-#define to_gpio_peripheral_attr(x) container_of(x, struct gpio_peripheral_attribute, attr)
 
 /*
  * Функции power_on и т.п. должны быть синхронные,
@@ -174,8 +178,18 @@ struct gpio_peripheral_attribute {
 }
 */
 
-/* найти для текущего модема ножку power */
-int indigo_gpioperiph_get_pin_by_function(struct gpio_peripheral *periph,
-	indigo_pin_function_t function);
+/* собственно, мега-апи для инициализации */
+extern struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *peripheral);
+extern int indigo_gpio_peripheral_init(void);
+extern void indigo_gpio_peripheral_exit(void);
+
+extern int gps_nv08c_csm_setup(struct gpio_peripheral *periph);
+extern int gps_sim508_setup(struct gpio_peripheral *periph);
+extern int gps_eb500_setup(struct gpio_peripheral *periph);
+
+extern int gsm_sim508_setup(struct gpio_peripheral *periph);
+extern int gsm_sim900_setup(struct gpio_peripheral *periph);
+extern int gsm_sim900D_setup(struct gpio_peripheral *periph);
+
 
 #endif /* _INDIGO_GPIOPERIPH_H */
