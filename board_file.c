@@ -239,16 +239,8 @@ struct gpio_peripheral indigo_all_peripherals [7][3] = {
 
 void board_init(void)
 {
-	/* need to show how our device init should work */
-	unsigned int i;
-
-	struct gpio_peripheral_obj *periph_obj;
-
-	indigo_gpio_peripheral_init();
-
-	for (i = 0; i < ARRAY_SIZE(indigo_all_peripherals[system_rev]); i++) {
-		periph_obj = create_gpio_peripheral_obj(&indigo_all_peripherals[system_rev][i]);
-		printk(KERN_ERR "indigo gpioperiph: %s peripheral %s added\n",
-		       periph_obj->peripheral.name, periph_obj->peripheral.description);
-	}
+#ifdef INDIGO_GPIO_PERIPH
+	indigo_gpio_peripheral_init(indigo_all_peripherals[system_rev],
+		ARRAY_SIZE(indigo_all_peripherals[system_rev]));
+#endif INDIGO_GPIO_PERIPH
 }

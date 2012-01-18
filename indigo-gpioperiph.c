@@ -7,6 +7,7 @@
 #include <linux/memory.h>
 #include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/string.h>
@@ -166,6 +167,7 @@ int indigo_configure_general_pins(struct gpio_peripheral *periph)
 		indigo_request_pin(&periph->pins[i]);
 	}
 }
+EXPORT_SYMBOL(indigo_configure_general_pins);
 
 /**
  * only valid for output pins
@@ -630,8 +632,6 @@ int gsm_sim900D_setup(struct gpio_peripheral *periph)
 
 	result = gsm_generic_simcom_setup(periph, keep_turned_on_handler_irq);
 
-	indigo_configure_general_pins(periph);
-
 	periph->status = gsm_generic_status;
 	periph->power_on = gsm_sim900D_power_on;
 	periph->power_off = gsm_sim900D_power_off;
@@ -767,8 +767,6 @@ int gsm_sim900_setup(struct gpio_peripheral *periph)
 		PRINT(KERN_ERR, "error in generic_simcom_setup");
 		goto out;
 	}
-
-	indigo_configure_general_pins(periph);
 
 	periph->reset = gsm_sim900_reset;
 	periph->status = gsm_generic_status;
@@ -1435,9 +1433,24 @@ static void destroy_gpio_peripheral_obj(struct gpio_peripheral_obj *gpio_periphe
         kobject_put(&gpio_peripheral_obj->kobj);
 }
 
-int indigo_gpio_peripheral_init(void)
+/* единственный ужас -- 3 устройства */
+static struct gpio_peripheral indigo_gpioperiph_platform_data[3];
+
+static struct platform_device indigo_gpioperiph_device = {
+        .name           = "indigo_gpioperiph",
+        .id             = -1,
+        .dev            = {
+		.platform_data = &indigo_gpioperiph_platform_data,
+        }
+};
+
+
+int __init indigo_gpio_peripheral_init(struct gpio_peripheral peripherals[3], int nr_devices)
 {
 	int result;
+	int i;
+	struct gpio_peripheral_obj *periph_obj;
+
         /*
          * Create a kset with the name of "kset_example",
          * located under /sys/kernel/
@@ -1446,11 +1459,27 @@ int indigo_gpio_peripheral_init(void)
         if (!indigo_kset)
                 result = -EIO;
 
+	memcpy(&indigo_gpioperiph_platform_data, peripherals, sizeof(peripherals[0]) * 3);
+
+	for (i = 0; i < nr_devices; i++) {
+		periph_obj = create_gpio_peripheral_obj(&peripherals[i]);
+		if (!periph_obj) {
+			printk(KERN_ERR "fatal error during object creation\n");
+			goto out;
+		}
+
+		printk(KERN_ERR "indigo gpioperiph: %s peripheral %s added\n",
+		       periph_obj->peripheral.name, periph_obj->peripheral.description);
+	}
+
+	platform_device_register(&indigo_gpioperiph_device);
+
+out:
         return result;
 
 }
 
-void indigo_gpio_peripheral_exit(void)
+void __exit indigo_gpio_peripheral_exit(void)
 {
 	struct gpio_peripheral_obj *obj, *tmp;
 	/* we need to correctly destroy all objects here, not sure about attributes */
