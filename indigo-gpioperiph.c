@@ -149,7 +149,7 @@ static int indigo_pin_active_value(const struct indigo_periph_pin *pin,
 	return ((pin->flags & GPIOF_ACTIVE_LOW) != 0) ^ value;
 }
 
-static void indigo_configure_general_pins(struct gpio_peripheral *periph)
+int indigo_configure_general_pins(struct gpio_peripheral *periph)
 {
 	int i;
 
@@ -507,6 +507,7 @@ int gsm_sim508_setup(struct gpio_peripheral *periph)
 	TRACE_EXIT_RES(result);
 	return result;
 }
+EXPORT_SYMBOL(gsm_sim508_setup);
 /*
  * ------------------------------------------------------
  * ------------------------------------------------------
@@ -642,6 +643,8 @@ int gsm_sim900D_setup(struct gpio_peripheral *periph)
 	TRACE_EXIT_RES(result);
 	return result;
 }
+EXPORT_SYMBOL(gsm_sim900D_setup);
+
 /*
  * ------------------------------------------------------
  * ------------------------------------------------------
@@ -778,6 +781,7 @@ out:
 	TRACE_EXIT_RES(result);
 	return result;
 }
+EXPORT_SYMBOL(gsm_sim900_setup);
 
 /*
  * ------------------------------------------------------
@@ -889,6 +893,7 @@ int gps_sim508_setup(struct gpio_peripheral *periph)
 	TRACE_EXIT();
 	return 0;
 }
+EXPORT_SYMBOL(gps_sim508_setup);
 /*
  * ----------------------------------------------------------
  * ----------------------------------------------------------
@@ -950,6 +955,7 @@ int gps_eb500_setup(struct gpio_peripheral *periph)
 	TRACE_EXIT_RES(result);
 	return result;
 }
+EXPORT_SYMBOL(gps_eb500_setup);
 
 /*
  * NV80C-CSM GPS/GNSS Module (Hardware V2.1)
@@ -1003,10 +1009,16 @@ int gps_nv08c_csm_setup(struct gpio_peripheral *periph)
 
 	BUG_ON(periph == NULL);
 
+	periph->reset = gps_nv08c_csm_reset;
+	periph->power_on = gps_nv08c_csm_power_on;
+	periph->power_off = gps_nv08c_csm_power_off;
+	periph->check_and_power_on = indigo_check_and_power_on;
+
 
 	TRACE_EXIT_RES(result);
 	return result;
 }
+EXPORT_SYMBOL(gps_nv08c_csm_setup);
 
 /* sysfs interface to previous code */
 
@@ -1377,7 +1389,9 @@ struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *p
         if (retval)
 		goto out_put;
 
+	/* --------------------------------------- */
 	indigo_configure_general_pins(peripheral);
+	/* --------------------------------------- */
 
 	for (i = 0; i < INDIGO_MAX_GPIOPERIPH_PIN_COUNT; i++) {
 		if (peripheral->pins[i].description == NULL)
@@ -1396,7 +1410,10 @@ struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *p
 	INIT_LIST_HEAD(&peripheral_obj->kobject_item);
 	list_add_tail(&peripheral_obj->kobject_item, &kobjects);
 
+	/* ------------------------------------------ */
 	peripheral_obj->peripheral.setup(&peripheral_obj->peripheral);
+	/* ------------------------------------------ */
+
         /*
          * We are always responsible for sending the uevent that the kobject
          * was added to the system.
@@ -1443,6 +1460,10 @@ void indigo_gpio_peripheral_exit(void)
 	}
         kset_unregister(indigo_kset);
 }
+
+EXPORT_SYMBOL(indigo_gpio_peripheral_exit);
+EXPORT_SYMBOL(indigo_gpio_peripheral_init);
+EXPORT_SYMBOL(create_gpio_peripheral_obj);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Yury Luneff <yury@indigosystem.ru>");

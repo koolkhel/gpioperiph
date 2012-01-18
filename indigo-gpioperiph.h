@@ -1,13 +1,14 @@
 #ifndef _INDIGO_GPIOPERIPH_H
 #define _INDIGO_GPIOPERIPH_H
 
-#include <asm/gpio.h>
 #include <linux/kobject.h>
 #include <linux/sysfs.h>
 #include <linux/list.h>
 #include <linux/sched.h>
 #include <linux/workqueue.h>
 #include <linux/spinlock.h>
+
+#include <mach/gpio.h>
 
 #define INDIGO_MAX_GPIOPERIPH_PIN_COUNT 32
 #define INDIGO_NO_PIN 255
@@ -191,5 +192,6 @@ extern int gsm_sim508_setup(struct gpio_peripheral *periph);
 extern int gsm_sim900_setup(struct gpio_peripheral *periph);
 extern int gsm_sim900D_setup(struct gpio_peripheral *periph);
 
+int indigo_configure_general_pins(struct gpio_peripheral *periph);
 
 #endif /* _INDIGO_GPIOPERIPH_H */
