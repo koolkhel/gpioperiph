@@ -1158,11 +1158,7 @@ static void indigo_peripheral_process_command(struct work_struct *command)
 
 	gp_cmd = container_of(command, struct gpio_peripheral_command, work);
 	peripheral = gp_cmd->peripheral;
-
-	BUG_ON(peripheral == NULL);
-
 	peripheral_obj = container_of(peripheral, struct gpio_peripheral_obj, peripheral);
-	BUG_ON(peripheral_obj == NULL); /* на самом деле невозможно */
 
 	switch (gp_cmd->cmd) {
 	case INDIGO_COMMAND_NO_COMMAND:
@@ -1184,24 +1180,6 @@ static void indigo_peripheral_process_command(struct work_struct *command)
 		printk(KERN_ERR "unknown command supplied\n");
 	}
 
-	/* i assume it's safe do free work_struct here, because: */
-	/*
-	 * f(work);
-
-	 * While we must be careful to not use "work" after this, the trace
-	 * point will only record its address.
-	 *
-	 * trace_workqueue_execute_end(work);
-	 */
-	list_del(&gp_cmd->command_sequence);
-
-	list_for_each_entry(gp_cmd, &peripheral_obj->command_list, command_sequence) {
-		remaining_count++;
-	}
-
-	printk(KERN_ERR "remaining commands in queue for periph %s is %d\n",
-	      peripheral_obj->peripheral.name, remaining_count);
-
 	complete(&gp_cmd->complete);
 
 	TRACE_EXIT();
@@ -1213,12 +1191,16 @@ static void indigo_peripheral_free_completed_commands(struct gpio_peripheral_obj
 {
 	struct gpio_peripheral_command *gp_cmd, *tmp;
 
+	TRACE_ENTRY();
+
 	list_for_each_entry_safe(gp_cmd, tmp, &peripheral_obj->command_list, command_sequence) {
 		if (completion_done(&gp_cmd->complete)) {
 			list_del(&gp_cmd->command_sequence);
 			kfree(gp_cmd);
 		}
 	}
+
+	TRACE_EXIT();
 }
 
 /* создать, поместить в очередь
@@ -1238,8 +1220,6 @@ struct completion *indigo_peripheral_create_command(struct gpio_peripheral *peri
 	BUG_ON(peripheral == NULL);
 	peripheral_obj = container_of(peripheral, struct gpio_peripheral_obj, peripheral);
 
-	indigo_peripheral_free_completed_commands(peripheral_obj);
-
 	/* FIXME SLUB */
 	gp_cmd = kzalloc(sizeof(*gp_cmd), in_atomic() ? GFP_ATOMIC : GFP_KERNEL);
 	if (!gp_cmd) {
@@ -1251,7 +1231,6 @@ struct completion *indigo_peripheral_create_command(struct gpio_peripheral *peri
 	gp_cmd->peripheral = peripheral;
 
 	INIT_WORK(&gp_cmd->work, indigo_peripheral_process_command);
-
 	INIT_LIST_HEAD(&gp_cmd->command_sequence);
 	list_add_tail(&gp_cmd->command_sequence, &peripheral_obj->command_list);
 	init_completion(&gp_cmd->complete);
@@ -1333,6 +1312,8 @@ static ssize_t power_on_store(struct gpio_peripheral_obj *peripheral_obj, struct
 
 	complete = indigo_peripheral_create_command(&peripheral_obj->peripheral, INDIGO_COMMAND_POWER_ON);
 	wait_for_completion_interruptible(complete);
+	indigo_peripheral_free_completed_commands(peripheral_obj);
+
 
 	TRACE_EXIT();
         return count;
@@ -1348,6 +1329,7 @@ static ssize_t check_and_power_on_store(struct gpio_peripheral_obj *peripheral_o
 
 	complete = indigo_peripheral_create_command(&peripheral_obj->peripheral, INDIGO_COMMAND_CHECK_AND_POWER_ON);
 	wait_for_completion_interruptible(complete);
+	indigo_peripheral_free_completed_commands(peripheral_obj);
 
 	TRACE_EXIT();
         return count;
@@ -1363,6 +1345,7 @@ static ssize_t power_off_store(struct gpio_peripheral_obj *peripheral_obj, struc
 
 	complete = indigo_peripheral_create_command(&peripheral_obj->peripheral, INDIGO_COMMAND_POWER_OFF);
 	wait_for_completion_interruptible(complete);
+	indigo_peripheral_free_completed_commands(peripheral_obj);
 
 	TRACE_EXIT();
         return count;
@@ -1379,6 +1362,7 @@ static ssize_t reset_store(struct gpio_peripheral_obj *peripheral_obj, struct gp
 
 	complete = indigo_peripheral_create_command(&peripheral_obj->peripheral, INDIGO_COMMAND_RESET);
 	wait_for_completion_interruptible(complete);
+	indigo_peripheral_free_completed_commands(peripheral_obj);
 
 	TRACE_EXIT();
         return count;
