@@ -1148,10 +1148,6 @@ static void indigo_peripheral_process_command(struct work_struct *command)
 	struct gpio_peripheral *peripheral;
 	struct gpio_peripheral_obj *peripheral_obj;
 
-	int remaining_count = 0;
-
-	unsigned long flags;
-
 	TRACE_ENTRY();
 
 	/* execute command */
@@ -1239,7 +1235,7 @@ struct completion *indigo_peripheral_create_command(struct gpio_peripheral *peri
 
 out:
 	TRACE_EXIT();
-	return;
+	return &gp_cmd->complete;
 }
 
 /* here interfaces go */
@@ -1322,7 +1318,7 @@ static ssize_t power_on_store(struct gpio_peripheral_obj *peripheral_obj, struct
 static ssize_t check_and_power_on_store(struct gpio_peripheral_obj *peripheral_obj, struct gpio_peripheral_attribute *attr,
                          const char *buf, size_t count)
 {
-	struct complete *complete;
+	struct completion *complete;
 	TRACE_ENTRY();
 
 	BUG_ON(peripheral_obj == NULL);
