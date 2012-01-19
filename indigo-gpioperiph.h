@@ -28,6 +28,12 @@
 #define GPIOF_DEGLITCH (1 << 3)
 #define GPIOF_NODEGLITCH (0 << 3)
 
+/* дефолт -- активное значение -- 1 (high)
+ * не дефолт -- активное значение -- 0 (low)
+ *
+ * Активное оно с точки зрения драйвера:
+ * если в драйвере пишется set_output(1), то имеется в виду активное состояние
+ */
 #define GPIOF_ACTIVE_LOW (1 << 4)
 #define GPIOF_ACTIVE_HIGH (0 << 4)
 
@@ -184,6 +190,7 @@ extern struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_periph
 extern int indigo_gpio_peripheral_init(struct gpio_peripheral peripherals[3], int nr_devices);
 extern void indigo_gpio_peripheral_exit(void);
 
+extern int indigo_do_nothing_setup(struct gpio_peripheral *periph);
 extern int gps_nv08c_csm_setup(struct gpio_peripheral *periph);
 extern int gps_sim508_setup(struct gpio_peripheral *periph);
 extern int gps_eb500_setup(struct gpio_peripheral *periph);
