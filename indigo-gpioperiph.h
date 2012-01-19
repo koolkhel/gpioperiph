@@ -129,9 +129,6 @@ struct gpio_peripheral_obj {
 	/* очередь команд, выделять через alloc_workqueue,
 	 * max_active = 1 */
 	struct workqueue_struct *wq;
-	struct completion command_list_empty;
-	// init_completion(); при создании
-	// INIT_COMPLETION(); при повторном использовании, а оно у нас будет
 	spinlock_t command_list_lock; // spin_lock_init
 
 };
@@ -145,6 +142,9 @@ struct gpio_peripheral_command {
 	struct work_struct work;
 
 	struct list_head command_sequence;
+
+	/* whom to notify when finished */
+	struct completion complete;
 };
 
 struct indigo_gpio_sequence_step {

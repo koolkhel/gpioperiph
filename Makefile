@@ -1,4 +1,4 @@
-obj-y += indigo-gpioperiph.o board_file.o
+obj-m += indigo-gpioperiph.o board_file.o
 EXTRA_CFLAGS=-W -Wall
 EXTRA_LDFLAGS=-W -Wall
 CC=/home/yury/toolchain/arm-indigo-linux-gnueabi/bin/arm-indigo-linux-gnueabi-gcc
