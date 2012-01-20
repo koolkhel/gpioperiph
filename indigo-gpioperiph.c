@@ -948,7 +948,7 @@ static int gps_eb500_power_off(const struct gpio_peripheral *periph)
 
 	BUG_ON(periph == NULL);
 
-	indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_POWER, 1, true);
+	indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_POWER, 0, true);
 	msleep(1);
 
 	TRACE_EXIT_RES(result);
