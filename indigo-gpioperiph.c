@@ -925,7 +925,7 @@ EXPORT_SYMBOL(gps_sim508_setup);
  * EB-500 GPS Module (Device 1.0)
  *
  */
-int gps_eb500_power_on(const struct gpio_peripheral *periph)
+static int gps_eb500_power_on(const struct gpio_peripheral *periph)
 {
 	int result = 0;
 
@@ -933,12 +933,14 @@ int gps_eb500_power_on(const struct gpio_peripheral *periph)
 
 	BUG_ON(periph == NULL);
 
+	indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_POWER, 1, true);
+	msleep(1);
 
 	TRACE_EXIT_RES(result);
 	return result;
 }
 
-int gps_eb500_power_off(const struct gpio_peripheral *periph)
+static int gps_eb500_power_off(const struct gpio_peripheral *periph)
 {
 	int result = 0;
 
@@ -946,20 +948,30 @@ int gps_eb500_power_off(const struct gpio_peripheral *periph)
 
 	BUG_ON(periph == NULL);
 
-	indigo_generic_reset(periph);
+	indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_POWER, 1, true);
+	msleep(1);
 
 	TRACE_EXIT_RES(result);
 	return result;
 }
 
-int gps_eb500_reset(const struct gpio_peripheral *periph)
+static int gps_eb500_status(const struct gpio_peripheral *periph)
 {
 	int result = 0;
+	int power_pin;
+	int power_pin_value;
 
 	TRACE_ENTRY();
 
 	BUG_ON(periph == NULL);
 
+	power_pin = indigo_gpioperiph_get_pin_by_function(periph,
+		INDIGO_FUNCTION_POWER);
+
+	power_pin_value = gpio_get_value(periph->pins[power_pin].pin_no);
+
+	result = (power_pin_value ==
+		  indigo_pin_active_value(&periph->pins[power_pin], power_pin_value));
 
 	TRACE_EXIT_RES(result);
 	return result;
@@ -978,10 +990,10 @@ int gps_eb500_setup(struct gpio_peripheral *periph)
 	indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_POWER, 1, true);
 
 	/* FIXME */
-	periph->power_on = gps_sim508_power_on;
-	periph->power_off = gps_sim508_power_off;
+	periph->power_on = gps_eb500_power_on;
+	periph->power_off = gps_eb500_power_off;
 	periph->status = gps_sim508_status;
-	periph->reset = gps_sim508_reset;
+	periph->reset = indigo_generic_reset;
 	periph->check_and_power_on = indigo_check_and_power_on;
 
 
@@ -995,7 +1007,7 @@ EXPORT_SYMBOL(gps_eb500_setup);
  *
  */
 
-int gps_nv08c_csm_power_on(const struct gpio_peripheral *periph)
+static int gps_nv08c_csm_power_on(const struct gpio_peripheral *periph)
 {
 	int result = 0;
 
