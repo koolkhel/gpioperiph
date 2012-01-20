@@ -1047,8 +1047,6 @@ int gps_nv08c_csm_power_off(const struct gpio_peripheral *periph)
 */
 int gps_nv08c_csm_reset(const struct gpio_peripheral *periph)
 {
-	int result = 0;
-
 	struct indigo_gpio_sequence_step steps[] = {
 
 		{"1", "initially, reset is on",
@@ -1057,7 +1055,6 @@ int gps_nv08c_csm_reset(const struct gpio_peripheral *periph)
 		{"2", "reset to 0 for 1 ms",
 		 periph, INDIGO_FUNCTION_RESET, 0, true, 1, 0},
 
-		/* monitor status pin for value 0 */
 		{"3", "reset to 1 for 140 ms",
 		 periph, INDIGO_FUNCTION_RESET, 1, true, 140, 0},
 
