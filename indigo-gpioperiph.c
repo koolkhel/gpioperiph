@@ -722,7 +722,6 @@ int gsm_sim900_power_on(const struct gpio_peripheral *periph)
 	/* initially, status pin is 0 -- modem is turned off */
 	if (periph->status(periph)) {
 		printk(KERN_ERR "tried to power on device with status pin 1");
-		BUG();
 		return -ENODEV;
 	}
 
@@ -764,7 +763,6 @@ int gsm_sim900_power_off(const struct gpio_peripheral *periph)
 	/* initially, status pin is 1 -- modem is turned on */
 	if (!periph->status(periph)) {
 		printk(KERN_ERR "tried to power off device with status pin 0");
-		BUG();
 		return -ENODEV;
 	}
 
@@ -975,6 +973,17 @@ int gps_eb500_setup(struct gpio_peripheral *periph)
 
 	BUG_ON(periph == NULL);
 
+	indigo_configure_pin(periph, INDIGO_FUNCTION_POWER, /* mandatory */ true);
+
+	indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_POWER, 1, true);
+
+	/* FIXME */
+	periph->power_on = gps_sim508_power_on;
+	periph->power_off = gps_sim508_power_off;
+	periph->status = gps_sim508_status;
+	periph->reset = gps_sim508_reset;
+	periph->check_and_power_on = indigo_check_and_power_on;
+
 
 	TRACE_EXIT_RES(result);
 	return result;
@@ -994,6 +1003,7 @@ int gps_nv08c_csm_power_on(const struct gpio_peripheral *periph)
 
 	BUG_ON(periph == NULL);
 
+	indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_POWER, 1, true);
 
 	TRACE_EXIT_RES(result);
 	return result;
@@ -1007,11 +1017,22 @@ int gps_nv08c_csm_power_off(const struct gpio_peripheral *periph)
 
 	BUG_ON(periph == NULL);
 
+	indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_POWER, 0, true);
 
 	TRACE_EXIT_RES(result);
 	return result;
 }
 
+/*
+2.4.2. Сброс
+Входной сигнал #RESET (#RESET, вывод No25) в NV08C-CSM может быть использован внешней системой
+* для принудительного сброса цифровой части модуля. Для сброса цифровой части модуля внешняя
+* система должна обеспечить на входе #RESET нулевой импульс со следующими характеристиками:
+ уровень сигнала не выше 0.3хVCCIO
+ длительность импульса не менее 1 мкс.
+При этом встроенный в модуль супервизор будет удерживать цифровую часть модуля в
+состоянии #RESET не менее 140 мс после установки уровня сигнала #RESET из «0» в «1»
+*/
 int gps_nv08c_csm_reset(const struct gpio_peripheral *periph)
 {
 	int result = 0;
@@ -1020,9 +1041,30 @@ int gps_nv08c_csm_reset(const struct gpio_peripheral *periph)
 
 	BUG_ON(periph == NULL);
 
+		struct indigo_gpio_sequence_step steps[] = {
 
-	TRACE_EXIT_RES(result);
-	return result;
+		{"1", "initially, reset is on",
+		 periph, INDIGO_FUNCTION_RESET, 1, true, 500, 0},
+
+		{"2", "reset to 0 for 1 ms",
+		 periph, INDIGO_FUNCTION_RESET, 0, true, 1, 0},
+
+		/* monitor status pin for value 0 */
+		{"3", "reset to 1 for 140 ms",
+		 periph, INDIGO_FUNCTION_RESET, 1, true, 140, 0},
+
+		{"4", "finally, we have no way to check if everything is ok",
+		 NULL, INDIGO_FUNCTION_NO_FUNCTION, 0, true, 0, 0}
+	};
+
+	TRACE_ENTRY();
+
+	BUG_ON(periph == NULL);
+
+	indigo_gpio_perform_sequence(&steps[0], ARRAY_SIZE(steps));
+
+	TRACE_EXIT_RES(0);
+	return 0; /* 0 is OK code, 1 -- is error */
 }
 
 static int gps_nv08c_csm_status(const struct gpio_peripheral *periph)
