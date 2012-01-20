@@ -992,7 +992,7 @@ int gps_eb500_setup(struct gpio_peripheral *periph)
 	/* FIXME */
 	periph->power_on = gps_eb500_power_on;
 	periph->power_off = gps_eb500_power_off;
-	periph->status = gps_sim508_status;
+	periph->status = gps_eb500_status;
 	periph->reset = indigo_generic_reset;
 	periph->check_and_power_on = indigo_check_and_power_on;
 
@@ -1049,11 +1049,7 @@ int gps_nv08c_csm_reset(const struct gpio_peripheral *periph)
 {
 	int result = 0;
 
-	TRACE_ENTRY();
-
-	BUG_ON(periph == NULL);
-
-		struct indigo_gpio_sequence_step steps[] = {
+	struct indigo_gpio_sequence_step steps[] = {
 
 		{"1", "initially, reset is on",
 		 periph, INDIGO_FUNCTION_RESET, 1, true, 500, 0},
