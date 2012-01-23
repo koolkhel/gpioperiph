@@ -18,6 +18,10 @@
 
 #include <linux/indigo-gpioperiph.h>
 
+#define INDIGO_GPIOPERIPH_DEBUG
+
+#ifdef INDIGO_GPIOPERIPH_DEBUG
+
 #define PRINT(log_flag, format, args...)		\
 	printk(log_flag format "\n", ## args)
 
@@ -34,9 +38,18 @@
         } while (0)
 
 #define TRACE_STEP(step_name, message) do {				\
-		PRINT(KERN_INFO, "function %s operation step %s message %s", \
-			__func__, step_name, message);			\
+		PRINT(KERN_INFO, "step %s message %s", step_name, message); \
 	} while (0)
+
+#else /* no debug */
+
+#define PRINT(log_flag, format, args...) do {} while (0)
+#define TRACE_ENTRY() do {} while(0)
+#define TRACE_EXIT() do {} while(0)
+#define TRACE_EXIT_RES(res) do {} while(0)
+#define TRACE_STEP(step_name, message) do {} while(0)
+
+#endif
 
 int indigo_gpioperiph_get_pin_by_function(const struct gpio_peripheral *periph,
 	enum indigo_pin_function_t function)
@@ -87,7 +100,7 @@ int indigo_request_pin(const struct indigo_periph_pin *pin)
 	BUG_ON(pin == NULL);
 	result = gpio_request(pin->pin_no, pin->schematics_name);
 	if (result) {
-		printk(KERN_ERR "failed to request pin %s #%d with result %d\n", pin->schematics_name, pin->pin_no, result);
+		print(KERN_ERR "failed to request pin %s #%d with result %d\n", pin->schematics_name, pin->pin_no, result);
 		BUG();
 		panic("failed to request pin %s\n", pin->schematics_name);
 		goto done;
@@ -188,7 +201,7 @@ static void indigo_gpioperiph_set_output(const struct gpio_peripheral *periph,
 	pin = indigo_gpioperiph_get_mandatory_pin_by_function(periph, function, mandatory);
 
 	if (pin == INDIGO_NO_PIN) {
-		printk(KERN_INFO "non-mandatory pin for function %d not found\n", function);
+		PRINT(KERN_INFO, "non-mandatory pin for function %d not found\n", function);
 		goto done;
 	}
 
@@ -284,7 +297,7 @@ static irqreturn_t keep_turned_on_handler_irq(int irq, void *dev)
 	 * schedule a check of device status at the end of command queue
 	 * and turn it on if status is 0 that time
 	 */
-	printk(KERN_ERR "status reading is %d\n", device->status(device));
+	PRINT(KERN_INFO "status reading is %d\n", device->status(device));
 	if (!device->status(device))
 		indigo_peripheral_create_command(device, INDIGO_COMMAND_CHECK_AND_POWER_ON);
 
@@ -351,14 +364,14 @@ static int indigo_generic_reset(const struct gpio_peripheral *periph)
 		result = periph->power_off(periph);
 
 		if (result) {
-			printk(KERN_ERR "couldn't power off the device");
+			PRINT(KERN_ERR, "couldn't power off the device");
 			goto out;
 		}
 
 		TRACE_STEP("1.2", "Power on");
 		result = periph->power_on(periph);
 		if (result) {
-			printk(KERN_ERR "couldn't power on the device");
+			PRINT(KERN_ERR, "couldn't power on the device");
 			goto out;
 		}
 	} else { /* option 2. Just power on */
@@ -426,6 +439,7 @@ static int indigo_check_and_power_on(const struct gpio_peripheral *periph)
 int gsm_sim508_power_on(const struct gpio_peripheral *periph)
 {
 	int status = 0;
+	int result = 0;
 
 	struct indigo_gpio_sequence_step steps[] = {
 		{"0", "turn on POWER pin if available",
@@ -453,8 +467,8 @@ int gsm_sim508_power_on(const struct gpio_peripheral *periph)
 	/* initially, status pin is 0 -- modem is turned off */
 	if (periph->status(periph)) {
 		printk(KERN_ERR "tried to power on device with status pin 1");
-		BUG();
-		return -ENODEV;
+		result = -ENODEV;
+		goto out;
 	}
 
 	indigo_gpio_perform_sequence(&steps[0], ARRAY_SIZE(steps));
@@ -463,14 +477,17 @@ int gsm_sim508_power_on(const struct gpio_peripheral *periph)
 
 	PRINT(KERN_ERR, "status pin is %d", status);
 
-	TRACE_EXIT_RES(!status);
-	return !status; /* 0 is OK code, 1 -- error */
+	result = !status;
+out:
+	TRACE_EXIT_RES(result);
+	return result; /* 0 is OK code, 1 -- error */
 }
 
 /* p.3.4.2.1. figure 4 */
 int gsm_sim508_power_off(const struct gpio_peripheral *periph)
 {
 	int status;
+	int result = 0;
 
 	struct indigo_gpio_sequence_step steps[] = {
 
@@ -498,8 +515,8 @@ int gsm_sim508_power_off(const struct gpio_peripheral *periph)
 	/* initially, status pin is 1 -- modem is turned on */
 	if (!periph->status(periph)) {
 		printk(KERN_ERR "tried to power off device with status pin 0");
-		BUG();
-		return -ENODEV;
+		result = -ENODEV;
+		goto out;
 	}
 
 	indigo_gpio_perform_sequence(&steps[0], ARRAY_SIZE(steps));
@@ -508,9 +525,10 @@ int gsm_sim508_power_off(const struct gpio_peripheral *periph)
 
 	PRINT(KERN_ERR, "status pin is %d", status);
 
-
-	TRACE_EXIT_RES(status);
-	return status; /* 0 is OK code, 1 -- is error */
+	result = status;
+out:
+	TRACE_EXIT_RES(result);
+	return result; /* 0 is OK code, 1 -- is error */
 }
 
 int gsm_sim508_reset(const struct gpio_peripheral *periph)
@@ -555,6 +573,7 @@ EXPORT_SYMBOL(gsm_sim508_setup);
 int gsm_sim900D_power_on(const struct gpio_peripheral *periph)
 {
 	int status = 0;
+	int result = 0;
 
 	struct indigo_gpio_sequence_step steps[] = {
 
@@ -585,8 +604,8 @@ int gsm_sim900D_power_on(const struct gpio_peripheral *periph)
 	/* initially, status pin is 0 -- modem is turned off */
 	if (periph->status(periph)) {
 		printk(KERN_ERR "tried to power on device with status pin 1");
-		BUG();
-		return -ENODEV;
+		result = -ENODEV;
+		goto out;
 	}
 
 	indigo_gpio_perform_sequence(&steps[0], ARRAY_SIZE(steps));
@@ -594,14 +613,18 @@ int gsm_sim900D_power_on(const struct gpio_peripheral *periph)
 	status = periph->status(periph);
 	PRINT(KERN_ERR, "status pin is %d", status);
 
-	TRACE_EXIT_RES(!status);
-	return !status; /* 0 is OK code, 1 -- error */
+	result = !status;
+
+out:
+	TRACE_EXIT_RES(result);
+	return result; /* 0 is OK code, 1 -- error */
 }
 
 /* figure 10 */
 int gsm_sim900D_power_off(const struct gpio_peripheral *periph)
 {
 	int status;
+	int result;
 
 	struct indigo_gpio_sequence_step steps[] = {
 		{"1", "pwrkey -> 0 for 5s < t < 1s",
@@ -637,8 +660,10 @@ int gsm_sim900D_power_off(const struct gpio_peripheral *periph)
 
 	PRINT(KERN_ERR, "status pin is %d", status);
 
-	TRACE_EXIT_RES(status);
-	return status; /* 0 is OK code, 1 -- is error */
+	result = status;
+out:
+	TRACE_EXIT_RES(result);
+	return result; /* 0 is OK code, 1 -- is error */
 }
 
 int gsm_sim900D_reset(const struct gpio_peripheral *periph)
@@ -688,6 +713,7 @@ EXPORT_SYMBOL(gsm_sim900D_setup);
 int gsm_sim900_power_on(const struct gpio_peripheral *periph)
 {
 	int status = 0;
+	int result;
 
 	struct indigo_gpio_sequence_step steps[] = {
 
@@ -716,13 +742,11 @@ int gsm_sim900_power_on(const struct gpio_peripheral *periph)
 
 	BUG_ON(periph == NULL);
 
-	printk(KERN_ERR "hello, i'm here\n");
-	TRACE_STEP("1", "hello here");
-
 	/* initially, status pin is 0 -- modem is turned off */
 	if (periph->status(periph)) {
 		printk(KERN_ERR "tried to power on device with status pin 1");
-		return -ENODEV;
+		result = -ENODEV;
+		goto out;
 	}
 
 	indigo_gpio_perform_sequence(&steps[0], ARRAY_SIZE(steps));
@@ -730,13 +754,17 @@ int gsm_sim900_power_on(const struct gpio_peripheral *periph)
 	status = periph->status(periph);
 	PRINT(KERN_ERR, "status pin is %d", status);
 
-	TRACE_EXIT_RES(!status);
-	return !status; /* 0 is OK code, 1 -- error */
+	result = !status;
+
+out:
+	TRACE_EXIT_RES(result);
+	return result; /* 0 is OK code, 1 -- error */
 }
 
 int gsm_sim900_power_off(const struct gpio_peripheral *periph)
 {
 	int status;
+	int result;
 
 	struct indigo_gpio_sequence_step steps[] = {
 
@@ -763,7 +791,8 @@ int gsm_sim900_power_off(const struct gpio_peripheral *periph)
 	/* initially, status pin is 1 -- modem is turned on */
 	if (!periph->status(periph)) {
 		printk(KERN_ERR "tried to power off device with status pin 0");
-		return -ENODEV;
+		result = -ENODEV;
+		goto out;
 	}
 
 	indigo_gpio_perform_sequence(&steps[0], ARRAY_SIZE(steps));
@@ -771,8 +800,10 @@ int gsm_sim900_power_off(const struct gpio_peripheral *periph)
 	status = periph->status(periph);
 	PRINT(KERN_ERR, "status pin is %d", status);
 
-	TRACE_EXIT_RES(status);
-	return !status; /* 0 is OK code, 1 -- is error */
+	result = status;
+out:
+	TRACE_EXIT_RES(result);
+	return result; /* 0 is OK code, 1 -- is error */
 
 }
 
@@ -784,6 +815,7 @@ int gsm_sim900_reset(const struct gpio_peripheral *periph)
 int gsm_sim900_setup(struct gpio_peripheral *periph)
 {
 	int result = 0;
+
 	TRACE_ENTRY();
 
 	periph->reset = gsm_sim900_reset;
@@ -799,6 +831,7 @@ int gsm_sim900_setup(struct gpio_peripheral *periph)
 	}
 
 	indigo_peripheral_create_command(periph, INDIGO_COMMAND_CHECK_AND_POWER_ON);
+
 out:
 	TRACE_EXIT_RES(result);
 	return result;
@@ -837,6 +870,8 @@ static int gps_sim508_status(const struct gpio_peripheral *periph)
 int gps_sim508_power_on(const struct gpio_peripheral *periph)
 {
 	int status;
+	int result;
+
 	struct indigo_gpio_sequence_step steps[] = {
 		{"1", "set power to on and wait 220 ms",
 		 periph, INDIGO_FUNCTION_POWER, 1, true, 220, 0},
@@ -849,8 +884,8 @@ int gps_sim508_power_on(const struct gpio_peripheral *periph)
 
 	if (periph->status(periph)) {
 		printk(KERN_ERR "GPS already seems to work\n");
-		BUG();
-		return -ENODEV;
+		result = -ENODEV;
+		goto out;
 	}
 
 	indigo_gpio_perform_sequence(&steps[0], ARRAY_SIZE(steps));
@@ -858,8 +893,10 @@ int gps_sim508_power_on(const struct gpio_peripheral *periph)
 	status = periph->status(periph);
 	PRINT(KERN_ERR, "status pin is %d", status);
 
-	TRACE_EXIT_RES(status);
-	return !status;
+	result = !status;
+out:
+	TRACE_EXIT_RES(result);
+	return result;
 }
 
 /* no precise way to nicely turn this off */
