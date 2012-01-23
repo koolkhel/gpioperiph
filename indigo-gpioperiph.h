@@ -13,14 +13,11 @@
 #define INDIGO_MAX_GPIOPERIPH_PIN_COUNT 32
 #define INDIGO_NO_PIN 255
 
-/*
- make these flag values available regardless of GPIO kconfig options
-#define GPIOF_DIR_OUT   (0 << 0)
-#define GPIOF_DIR_IN    (1 << 0)
-
 #define GPIOF_INIT_LOW  (0 << 1)
 #define GPIOF_INIT_HIGH (1 << 1)
-*/
+
+#define GPIOF_DIR_OUT   (0 << 0)
+#define GPIOF_DIR_IN    (1 << 0)
 
 #define GPIOF_PULLUP (1 << 2)
 #define GPIOF_NOPULLUP (0 << 2)
