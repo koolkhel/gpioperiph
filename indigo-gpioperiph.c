@@ -100,7 +100,7 @@ int indigo_request_pin(const struct indigo_periph_pin *pin)
 	BUG_ON(pin == NULL);
 	result = gpio_request(pin->pin_no, pin->schematics_name);
 	if (result) {
-		print(KERN_ERR "failed to request pin %s #%d with result %d\n", pin->schematics_name, pin->pin_no, result);
+		printk(KERN_ERR "failed to request pin %s #%d with result %d\n", pin->schematics_name, pin->pin_no, result);
 		BUG();
 		panic("failed to request pin %s\n", pin->schematics_name);
 		goto done;
@@ -292,12 +292,14 @@ static irqreturn_t keep_turned_on_handler_irq(int irq, void *dev)
 {
 	struct gpio_peripheral *device = (struct gpio_peripheral *) dev;
 
+	(void)irq;
+
 	TRACE_ENTRY();
 	/*
 	 * schedule a check of device status at the end of command queue
 	 * and turn it on if status is 0 that time
 	 */
-	PRINT(KERN_INFO "status reading is %d\n", device->status(device));
+	PRINT(KERN_INFO, "status reading is %d\n", device->status(device));
 	if (!device->status(device))
 		indigo_peripheral_create_command(device, INDIGO_COMMAND_CHECK_AND_POWER_ON);
 
@@ -388,6 +390,9 @@ out:
 int indigo_gpio_do_nothing(const struct gpio_peripheral *periph)
 {
 	TRACE_ENTRY();
+
+	(void) periph;
+
 	TRACE_EXIT_RES(0);
 	return 0;
 }
@@ -650,8 +655,8 @@ int gsm_sim900D_power_off(const struct gpio_peripheral *periph)
 	/* initially, status pin is 1 -- modem is turned on */
 	if (!periph->status(periph)) {
 		printk(KERN_ERR "tried to power off device with status pin 0");
-		BUG();
-		return -ENODEV;
+		result = -ENODEV;
+		goto out;
 	}
 
 	indigo_gpio_perform_sequence(&steps[0], ARRAY_SIZE(steps));
@@ -1339,6 +1344,7 @@ static ssize_t status_show(struct gpio_peripheral_obj *peripheral_obj, struct gp
 	BUG_ON(peripheral_obj == NULL);
 
 	periph = &peripheral_obj->peripheral;
+	(void) attr;
 
 	BUG_ON(periph == NULL);
 
@@ -1351,12 +1357,18 @@ static ssize_t status_show(struct gpio_peripheral_obj *peripheral_obj, struct gp
 static ssize_t dummy_store(struct gpio_peripheral_obj *periph_obj, struct gpio_peripheral_attribute *attr,
                          const char *buf, size_t count)
 {
+	(void) periph_obj;
+	(void) attr;
+	(void) buf;
         return count; /* do nothing at all */
 }
 
 static ssize_t dummy_show(struct gpio_peripheral_obj *periph_obj, struct gpio_peripheral_attribute *attr,
                          char *buf)
 {
+	(void) periph_obj;
+	(void) attr;
+	(void) buf;
         return 0; /* do nothing at all */
 }
 
@@ -1375,6 +1387,7 @@ ssize_t gpio_show(struct gpio_peripheral_obj *peripheral_obj,
 
 	TRACE_ENTRY();
 
+	(void) peripheral_obj;
 	pin = container_of(attr, struct indigo_periph_pin, sysfs_attr);
 	len = sprintf(buf, "%d\n", gpio_get_value(pin->pin_no));
 
@@ -1389,6 +1402,9 @@ static ssize_t power_on_store(struct gpio_peripheral_obj *peripheral_obj, struct
 	TRACE_ENTRY();
 
 	BUG_ON(peripheral_obj == NULL);
+
+	(void) buf;
+	(void) attr;
 
 	complete = indigo_peripheral_create_command(&peripheral_obj->peripheral, INDIGO_COMMAND_POWER_ON);
 	wait_for_completion_interruptible(complete);
@@ -1407,6 +1423,9 @@ static ssize_t check_and_power_on_store(struct gpio_peripheral_obj *peripheral_o
 
 	BUG_ON(peripheral_obj == NULL);
 
+	(void) buf;
+	(void) attr;
+
 	complete = indigo_peripheral_create_command(&peripheral_obj->peripheral, INDIGO_COMMAND_CHECK_AND_POWER_ON);
 	wait_for_completion_interruptible(complete);
 	indigo_peripheral_free_completed_commands(peripheral_obj);
@@ -1422,6 +1441,9 @@ static ssize_t power_off_store(struct gpio_peripheral_obj *peripheral_obj, struc
 	TRACE_ENTRY();
 
 	BUG_ON(peripheral_obj == NULL);
+
+	(void) buf;
+	(void) attr;
 
 	complete = indigo_peripheral_create_command(&peripheral_obj->peripheral, INDIGO_COMMAND_POWER_OFF);
 	wait_for_completion_interruptible(complete);
@@ -1439,6 +1461,9 @@ static ssize_t reset_store(struct gpio_peripheral_obj *peripheral_obj, struct gp
 	TRACE_ENTRY();
 
 	BUG_ON(peripheral_obj == NULL);
+
+	(void) buf;
+	(void) attr;
 
 	complete = indigo_peripheral_create_command(&peripheral_obj->peripheral, INDIGO_COMMAND_RESET);
 	wait_for_completion_interruptible(complete);
