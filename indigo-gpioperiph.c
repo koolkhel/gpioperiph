@@ -1253,7 +1253,7 @@ static void indigo_peripheral_process_command(struct work_struct *command)
 		peripheral->power_on(peripheral);
 		break;
 	case INDIGO_COMMAND_POWER_OFF:
-		peripheral->reset(peripheral);
+		peripheral->power_off(peripheral);
 		break;
 	case INDIGO_COMMAND_RESET:
 		peripheral->reset(peripheral);
