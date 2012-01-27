@@ -19,6 +19,10 @@
 #define GPIOF_DIR_OUT   (0 << 0)
 #define GPIOF_DIR_IN    (1 << 0)
 
+#define GPIOF_DIR_OUT_INIT_LOW (GPIOF_INIT_LOW | GPIOF_DIR_OUT)
+#define GPIOF_DIR_OUT_INIT_HIGH (GPIOF_INIT_HIGH | GPIOF_DIR_OUT)
+
+
 #define GPIOF_PULLUP (1 << 2)
 #define GPIOF_NOPULLUP (0 << 2)
 

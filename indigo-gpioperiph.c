@@ -18,7 +18,7 @@
 
 #include <linux/indigo-gpioperiph.h>
 
-#define INDIGO_GPIOPERIPH_DEBUG
+#undef INDIGO_GPIOPERIPH_DEBUG
 
 #ifdef INDIGO_GPIOPERIPH_DEBUG
 
