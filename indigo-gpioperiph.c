@@ -90,6 +90,27 @@ int indigo_gpioperiph_get_mandatory_pin_by_function(const struct gpio_peripheral
 	return pin;
 }
 
+/* нужно просто <s>хорошо работать</s> сказать sysfs_notify на нужный объект */
+static irqreturn_t indigo_pin_notify_change_handler(int irq, void *priv)
+{
+	struct work_struct *work = priv;
+
+	(void) irq;
+	schedule_work(work);
+
+	return IRQ_HANDLED;
+}
+
+struct work_struct work;
+
+static void indigo_pin_notify_sysfs(struct work_struct *work)
+{
+	struct indigo_periph_pin *pin = container_of(work, struct indigo_periph_pin, work);
+
+	if (pin->value_sd != NULL)
+		sysfs_notify_dirent(pin->value_sd);
+}
+
 /* смысл, в основном, в том, чтобы дополнить разницу
  * между общими функциями gpio_* и атмеловские at91_*
  */
@@ -1520,6 +1541,7 @@ static LIST_HEAD(kobjects);
 struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *peripheral)
 {
         struct gpio_peripheral_obj *peripheral_obj = NULL;
+	struct sysfs_dirent *value_sd = NULL;
         int retval;
 	int i;
 
@@ -1570,14 +1592,38 @@ struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *p
 		peripheral->pins[i].sysfs_attr.show = gpio_show;
 		peripheral->pins[i].sysfs_attr.store = dummy_store;
 		/* add file to sysfs. not too sure about rolling back */
-		sysfs_create_file(&peripheral_obj->kobj, &peripheral->pins[i].sysfs_attr.attr);
+		retval = sysfs_create_file(&peripheral_obj->kobj, &peripheral->pins[i].sysfs_attr.attr);
+		if (retval) {
+			printk(KERN_ERR "error creating sysfs file\n");
+			continue;
+		};
+
+		if (peripheral->pins[i].flags & GPIOF_POLLABLE) {
+			INIT_WORK(&peripheral->pins[i].work, indigo_pin_notify_sysfs);
+
+			/* first, get struct sysfs_dirent for current attribute */
+			value_sd = sysfs_get_dirent(peripheral_obj->kobj.sd, NULL, peripheral->pins[i].schematics_name);
+			peripheral->pins[i].value_sd = value_sd;
+
+			if (value_sd == NULL)
+				printk(KERN_ERR "couldn't get sysfs dirent for pin %s\n",
+					peripheral->pins[i].schematics_name);
+
+			/* second, register the interrupt handler */
+			if (request_irq(peripheral->pins[i].pin_no,
+				indigo_pin_notify_change_handler, 0,
+				peripheral->pins[i].schematics_name, (void *) &peripheral->pins[i].work)) {
+				printk(KERN_ERR "couldn't set up change handler for pin %s\n",
+					peripheral->pins[i].schematics_name);
+			}
+		}
 	}
 
 	/* in order to release all of 'em */
 	INIT_LIST_HEAD(&peripheral_obj->kobject_item);
 	list_add_tail(&peripheral_obj->kobject_item, &kobjects);
 
-	/* ------------------------------------------ */
+	/* ------ specific for each device ---------- */
 	peripheral_obj->peripheral.setup(&peripheral_obj->peripheral);
 	/* ------------------------------------------ */
 
@@ -1618,7 +1664,9 @@ static struct platform_device indigo_gpioperiph_device = {
 };
 #endif
 
-
+/**
+ * Entry point of driver
+ */
 int indigo_gpio_peripheral_init(struct gpio_peripheral peripherals[3], int nr_devices)
 {
 	int result;
