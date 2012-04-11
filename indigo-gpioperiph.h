@@ -13,15 +13,11 @@
 #define INDIGO_MAX_GPIOPERIPH_PIN_COUNT 32
 #define INDIGO_NO_PIN 255
 
-#define GPIOF_INIT_LOW  (0 << 1)
-#define GPIOF_INIT_HIGH (1 << 1)
-
 #define GPIOF_DIR_OUT   (0 << 0)
 #define GPIOF_DIR_IN    (1 << 0)
 
-#define GPIOF_DIR_OUT_INIT_LOW (GPIOF_INIT_LOW | GPIOF_DIR_OUT)
-#define GPIOF_DIR_OUT_INIT_HIGH (GPIOF_INIT_HIGH | GPIOF_DIR_OUT)
-
+#define GPIOF_INIT_LOW  (0 << 1)
+#define GPIOF_INIT_HIGH (1 << 1)
 
 #define GPIOF_PULLUP (1 << 2)
 #define GPIOF_NOPULLUP (0 << 2)
@@ -29,14 +25,22 @@
 #define GPIOF_DEGLITCH (1 << 3)
 #define GPIOF_NODEGLITCH (0 << 3)
 
+#define GPIOF_ACTIVE_LOW (1 << 4)
+#define GPIOF_ACTIVE_HIGH (0 << 4)
+
+#define GPIOF_POLLABLE (1 << 5)
+#define GPIOF_NOT_POLLABLE (0 << 5)
+
+#define GPIOF_DIR_OUT_INIT_LOW (GPIOF_INIT_LOW | GPIOF_DIR_OUT)
+#define GPIOF_DIR_OUT_INIT_HIGH (GPIOF_INIT_HIGH | GPIOF_DIR_OUT)
+
+
 /* дефолт -- активное значение -- 1 (high)
  * не дефолт -- активное значение -- 0 (low)
  *
  * Активное оно с точки зрения драйвера:
  * если в драйвере пишется set_output(1), то имеется в виду активное состояние
  */
-#define GPIOF_ACTIVE_LOW (1 << 4)
-#define GPIOF_ACTIVE_HIGH (0 << 4)
 
 enum indigo_pin_flags_t {
 	INDIGO_GPIO_INPUT = 0x1,
@@ -96,6 +100,9 @@ struct indigo_periph_pin {
 	int flags; /* INVERT, GPIO_INPUT, GPIO_OUTPUT */
 
 	struct gpio_peripheral_attribute sysfs_attr;
+
+	struct work_struct work;
+	struct sysfs_dirent *value_sd;
 };
 
 /*

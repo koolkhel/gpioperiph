@@ -10,6 +10,8 @@ indigo-gpioperiph.ko: indigo-gpioperiph.c indigo-gpioperiph.h board_file.c
 
 clean:
 	make ARCH=arm CROSS_COMPILE=/home/yury/toolchain/arm-indigo-linux-gnueabi/bin/arm-indigo-linux-gnueabi- -C linux M=`pwd` clean
+	rm -rf *.ko *.o
 
-install: default
-	lftp -f ftp-script-install
+install:
+	cp -fa indigo-gpioperiph.c /work/linux-2.6/drivers/misc/
+	cp -fa indigo-gpioperiph.h /work/linux-2.6/include/linux/

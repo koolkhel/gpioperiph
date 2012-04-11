@@ -94,8 +94,11 @@ int indigo_gpioperiph_get_mandatory_pin_by_function(const struct gpio_peripheral
 static irqreturn_t indigo_pin_notify_change_handler(int irq, void *priv)
 {
 	struct work_struct *work = priv;
+	struct indigo_periph_pin *pin = container_of(work, struct indigo_periph_pin, work);
+
 
 	(void) irq;
+	printk(KERN_ERR "I'm here! %s\n", pin->schematics_name);
 	schedule_work(work);
 
 	return IRQ_HANDLED;
