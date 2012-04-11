@@ -348,8 +348,10 @@ static int gsm_generic_simcom_setup(struct gpio_peripheral *periph,
 
 	status = indigo_configure_pin(periph, INDIGO_FUNCTION_STATUS, /* mandatory */ true);
 
-	if (request_irq(periph->pins[status].pin_no, status_pin_handler, 0,
-			periph->pins[status].description, (void *) periph)) {
+	if (request_irq(gpio_to_irq(periph->pins[status].pin_no),
+				status_pin_handler,
+				IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
+				periph->pins[status].description, (void *) periph)) {
 
 		printk(KERN_ERR "can not request irq for status pin\n");
 		BUG(); /* not fatal */
@@ -1609,11 +1611,11 @@ struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *p
 			INIT_WORK(&peripheral->pins[i].work, indigo_pin_notify_sysfs);
 
 			/* second, register the interrupt handler */
-			if ((request_irq(gpio_to_irq(peripheral->pins[i].pin_no),
-							indigo_pin_notify_change_handler,
-							IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
-							peripheral->pins[i].schematics_name,
-							(void *) &peripheral->pins[i].work)) {
+			if (request_irq(gpio_to_irq(peripheral->pins[i].pin_no),
+						indigo_pin_notify_change_handler,
+						IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
+						peripheral->pins[i].schematics_name,
+						(void *) &peripheral->pins[i].work)) {
 
 				printk(KERN_ERR "couldn't set up change handler for pin %s\n",
 					peripheral->pins[i].schematics_name);
