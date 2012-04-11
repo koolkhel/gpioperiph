@@ -101,8 +101,6 @@ static irqreturn_t indigo_pin_notify_change_handler(int irq, void *priv)
 	return IRQ_HANDLED;
 }
 
-struct work_struct work;
-
 static void indigo_pin_notify_sysfs(struct work_struct *work)
 {
 	struct indigo_periph_pin *pin = container_of(work, struct indigo_periph_pin, work);
@@ -127,9 +125,9 @@ int indigo_request_pin(const struct indigo_periph_pin *pin)
 		goto done;
 	}
 
-	at91_set_GPIO_periph(pin->pin_no, pin->flags & GPIOF_PULLUP);
+	at91_set_GPIO_periph(pin->pin_no, (pin->flags & GPIOF_PULLUP) != 0);
 
-	if (pin->flags & GPIOF_DIR_IN) {
+	if ((pin->flags & GPIOF_DIR_IN) != 0) {
 		/* input pin */
 		at91_set_gpio_input(pin->pin_no,
 				(pin->flags & GPIOF_PULLUP) != 0);
@@ -1599,8 +1597,6 @@ struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *p
 		};
 
 		if (peripheral->pins[i].flags & GPIOF_POLLABLE) {
-			INIT_WORK(&peripheral->pins[i].work, indigo_pin_notify_sysfs);
-
 			/* first, get struct sysfs_dirent for current attribute */
 			value_sd = sysfs_get_dirent(peripheral_obj->kobj.sd, NULL, peripheral->pins[i].schematics_name);
 			peripheral->pins[i].value_sd = value_sd;
@@ -1609,10 +1605,13 @@ struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *p
 				printk(KERN_ERR "couldn't get sysfs dirent for pin %s\n",
 					peripheral->pins[i].schematics_name);
 
+			INIT_WORK(&peripheral->pins[i].work, indigo_pin_notify_sysfs);
+
 			/* second, register the interrupt handler */
 			if (request_irq(peripheral->pins[i].pin_no,
 				indigo_pin_notify_change_handler, 0,
 				peripheral->pins[i].schematics_name, (void *) &peripheral->pins[i].work)) {
+
 				printk(KERN_ERR "couldn't set up change handler for pin %s\n",
 					peripheral->pins[i].schematics_name);
 			}
