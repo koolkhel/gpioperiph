@@ -128,8 +128,6 @@ int indigo_request_pin(const struct indigo_periph_pin *pin)
 		goto done;
 	}
 
-	at91_set_GPIO_periph(pin->pin_no, (pin->flags & GPIOF_PULLUP) != 0);
-
 	if ((pin->flags & GPIOF_DIR_IN) != 0) {
 		/* input pin */
 		at91_set_gpio_input(pin->pin_no,
