@@ -98,7 +98,7 @@ static irqreturn_t indigo_pin_notify_change_handler(int irq, void *priv)
 
 
 	(void) irq;
-	printk(KERN_ERR "I'm here! %s\n", pin->schematics_name);
+	/* printk(KERN_ERR "I'm here! %s\n", pin->schematics_name); */
 	schedule_work(work);
 
 	return IRQ_HANDLED;
