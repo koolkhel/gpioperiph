@@ -1609,9 +1609,11 @@ struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *p
 			INIT_WORK(&peripheral->pins[i].work, indigo_pin_notify_sysfs);
 
 			/* second, register the interrupt handler */
-			if (request_irq(peripheral->pins[i].pin_no,
-				indigo_pin_notify_change_handler, 0,
-				peripheral->pins[i].schematics_name, (void *) &peripheral->pins[i].work)) {
+			if ((request_irq(gpio_to_irq(peripheral->pins[i].pin_no),
+							indigo_pin_notify_change_handler,
+							IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
+							peripheral->pins[i].schematics_name,
+							(void *) &peripheral->pins[i].work)) {
 
 				printk(KERN_ERR "couldn't set up change handler for pin %s\n",
 					peripheral->pins[i].schematics_name);
