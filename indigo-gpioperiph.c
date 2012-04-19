@@ -1151,8 +1151,7 @@ static int gps_nv08c_csm_status(const struct gpio_peripheral *periph)
 
 	power_pin_value = gpio_get_value(periph->pins[power_pin].pin_no);
 
-	result = (power_pin_value ==
-		  indigo_pin_active_value(&periph->pins[power_pin], power_pin_value));
+	result = indigo_pin_active_value(&periph->pins[power_pin], power_pin_value);
 
 	TRACE_EXIT_RES(result);
 	return result;
