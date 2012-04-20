@@ -1416,6 +1416,43 @@ ssize_t gpio_show(struct gpio_peripheral_obj *peripheral_obj,
         return len;
 }
 
+static ssize_t gpio_store(struct gpio_peripheral_obj *periph_obj,
+			struct gpio_peripheral_attribute *attr,
+			const char *buf, size_t count)
+{
+	struct indigo_periph_pin *pin;
+	int value;
+	int len;
+
+	(void) periph_obj;
+	(void) attr;
+	(void) buf;
+
+	TRACE_ENTRY();
+
+	pin = container_of(attr, struct indigo_periph_pin, sysfs_attr);
+
+	/* GPIOF_DIR_OUT is a 0 in first bit, 1 means DIR_IN */
+	if ((pin->flags & GPIOF_DIR_IN) != 0) {
+		printk(KERN_ERR "not allowing to set value of input pin\n");
+		count = -EINVAL;
+		goto out;
+	}
+
+	len = sscanf(buf, "%d\n", &value);
+	if (len != 1) {
+		count = -EINVAL;
+		goto out;
+	}
+
+	gpio_set_value(pin->pin_no, value);
+
+out:
+	TRACE_EXIT();
+        return count; /* do nothing at all */
+}
+
+
 static ssize_t power_on_store(struct gpio_peripheral_obj *peripheral_obj, struct gpio_peripheral_attribute *attr,
                          const char *buf, size_t count)
 {
@@ -1588,9 +1625,9 @@ struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *p
 
 		/* read-only attribute */
 		peripheral->pins[i].sysfs_attr.attr.name = peripheral->pins[i].schematics_name;
-		peripheral->pins[i].sysfs_attr.attr.mode = 0444;
+		peripheral->pins[i].sysfs_attr.attr.mode = 0666;
 		peripheral->pins[i].sysfs_attr.show = gpio_show;
-		peripheral->pins[i].sysfs_attr.store = dummy_store;
+		peripheral->pins[i].sysfs_attr.store = gpio_store;
 		/* add file to sysfs. not too sure about rolling back */
 		retval = sysfs_create_file(&peripheral_obj->kobj, &peripheral->pins[i].sysfs_attr.attr);
 		if (retval) {
