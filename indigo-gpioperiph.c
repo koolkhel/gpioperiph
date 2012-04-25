@@ -18,11 +18,11 @@
 
 #include <linux/indigo-gpioperiph.h>
 
-#undef INDIGO_GPIOPERIPH_DEBUG
+#define INDIGO_GPIOPERIPH_DEBUG
 
 #ifdef INDIGO_GPIOPERIPH_DEBUG
 
-#define PRINT(log_flag, format, args...)		\
+#define PRINT(log_flag, format, args...)	\
 	printk(log_flag format "\n", ## args)
 
 #define TRACE_ENTRY() do {                              \
@@ -51,8 +51,8 @@
 
 #endif
 
-int indigo_gpioperiph_get_pin_by_function(const struct gpio_peripheral *periph,
-	enum indigo_pin_function_t function)
+int indigo_gpioperiph_get_pin_by_function(struct gpio_peripheral *periph,
+					enum indigo_pin_function_t function)
 {
 	int i;
 
@@ -71,7 +71,7 @@ int indigo_gpioperiph_get_pin_by_function(const struct gpio_peripheral *periph,
 }
 
 /* kernel panic if pin's not found, thus no error handling need in caller */
-int indigo_gpioperiph_get_mandatory_pin_by_function(const struct gpio_peripheral *periph,
+int indigo_gpioperiph_get_mandatory_pin_by_function(struct gpio_peripheral *periph,
 						enum indigo_pin_function_t function,
 						bool mandatory)
 {
@@ -94,7 +94,6 @@ int indigo_gpioperiph_get_mandatory_pin_by_function(const struct gpio_peripheral
 static irqreturn_t indigo_pin_notify_change_handler(int irq, void *priv)
 {
 	struct work_struct *work = priv;
-	struct indigo_periph_pin *pin = container_of(work, struct indigo_periph_pin, work);
 
 
 	(void) irq;
@@ -144,7 +143,7 @@ done:
 }
 
 static int indigo_configure_pin(
-	const struct gpio_peripheral *periph,
+	struct gpio_peripheral *periph,
 	enum indigo_pin_function_t function,
 	bool mandatory)
 {
@@ -169,7 +168,7 @@ done:
  * This function answers if this value is active for current pin.
  */
 static int indigo_pin_active_value(const struct indigo_periph_pin *pin,
-	int value)
+				int value)
 {
 	/*
 	 * active low == 1 ^ status = 1 -> 0
@@ -211,10 +210,10 @@ EXPORT_SYMBOL(indigo_configure_general_pins);
  *
  * @value is corrected by @function pin flags
  */
-static void indigo_gpioperiph_set_output(const struct gpio_peripheral *periph,
-	enum indigo_pin_function_t function,
-	int value,
-	bool mandatory)
+static void indigo_gpioperiph_set_output(struct gpio_peripheral *periph,
+					enum indigo_pin_function_t function,
+					int value,
+					bool mandatory)
 {
 	int pin;
 
@@ -234,7 +233,7 @@ static void indigo_gpioperiph_set_output(const struct gpio_peripheral *periph,
 	}
 
 	gpio_set_value(periph->pins[pin].pin_no,
-			indigo_pin_active_value(&periph->pins[pin], value));
+		indigo_pin_active_value(&periph->pins[pin], value));
 
 done:
 	return;
@@ -246,7 +245,7 @@ done:
  * @INDIGO_FUNCTION_STATUS as pin kind is handled by timeout
  */
 static int indigo_gpio_perform_sequence(struct indigo_gpio_sequence_step *steps,
-	int step_count)
+					int step_count)
 {
 	int i;
 	int result = 0;
@@ -265,7 +264,7 @@ static int indigo_gpio_perform_sequence(struct indigo_gpio_sequence_step *steps,
 			steps[i].function != INDIGO_FUNCTION_STATUS) {
 
 			indigo_gpioperiph_set_output(steps[i].periph,
-				steps[i].function, steps[i].value, steps[i].mandatory);
+						steps[i].function, steps[i].value, steps[i].mandatory);
 		}
 
 		if (steps[i].sleep_ms != 0)
@@ -295,10 +294,10 @@ out:
 /**
  * Returns status pin value w/o interpretation
  */
-static int gsm_generic_status(const struct gpio_peripheral *periph)
+static int gsm_generic_status(struct gpio_peripheral *periph)
 {
 	int status_pin = indigo_gpioperiph_get_pin_by_function(periph,
-		INDIGO_FUNCTION_STATUS);
+							INDIGO_FUNCTION_STATUS);
 
 	return indigo_pin_active_value(
 		&periph->pins[status_pin],
@@ -306,7 +305,11 @@ static int gsm_generic_status(const struct gpio_peripheral *periph)
 }
 
 static struct completion *indigo_peripheral_create_command(struct gpio_peripheral *peripheral,
-	enum indigo_gpioperiph_command_t command);
+							enum indigo_gpioperiph_command_t command);
+
+static struct completion *indigo_peripheral_create_command_arg(struct gpio_peripheral *peripheral,
+							enum indigo_gpioperiph_command_t command, int argument);
+
 
 static irqreturn_t keep_turned_on_handler_irq(int irq, void *dev)
 {
@@ -328,6 +331,46 @@ static irqreturn_t keep_turned_on_handler_irq(int irq, void *dev)
 	return IRQ_HANDLED;
 }
 
+/* шлём либо NULL, либо keen_turned_on_handler_irq */
+static int indigo_set_keep_on_handler(struct gpio_peripheral *periph,
+				irq_handler_t status_pin_handler)
+{
+	int status;
+	int result = 0;
+
+	TRACE_ENTRY();
+
+	BUG_ON(periph == NULL);
+
+	status = indigo_gpioperiph_get_pin_by_function(periph, INDIGO_FUNCTION_STATUS);
+	if (status == INDIGO_NO_PIN) {
+		result = -EINVAL;
+		goto out;
+	}
+
+	if (status_pin_handler != NULL) {
+		if (request_irq(gpio_to_irq(periph->pins[status].pin_no),
+					status_pin_handler,
+					IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
+					periph->pins[status].description, (void *) periph)) {
+
+			printk(KERN_ERR "can not request irq for status pin\n");
+			panic("can not request irq for status pin\n");
+		}
+		periph->current_state = GPIO_PERIPH_STATE_SIM900_ON_KEEP;
+	} else if (periph->current_state == GPIO_PERIPH_STATE_SIM900_ON_KEEP) {
+		/* если не проверять состояние, можем влететь в двойной free_irq */
+		free_irq(gpio_to_irq(periph->pins[status].pin_no), (void *) periph);
+	} else {
+		printk(KERN_ERR "don't try to free_irq twice\n");
+		result = -EINVAL;
+	}
+
+out:
+	TRACE_EXIT_RES(result);
+	return result;
+}
+
 /**
  * Configure status pin for given interrupt handler, a pwrkey pin
  * and power pin if one's available
@@ -337,7 +380,7 @@ static irqreturn_t keep_turned_on_handler_irq(int irq, void *dev)
  * physically turn off the device.
  */
 static int gsm_generic_simcom_setup(struct gpio_peripheral *periph,
-	irq_handler_t status_pin_handler)
+				irq_handler_t status_pin_handler)
 {
 	int result = 0;
 	int status;
@@ -348,31 +391,21 @@ static int gsm_generic_simcom_setup(struct gpio_peripheral *periph,
 
 	status = indigo_configure_pin(periph, INDIGO_FUNCTION_STATUS, /* mandatory */ true);
 
-	if (request_irq(gpio_to_irq(periph->pins[status].pin_no),
-				status_pin_handler,
-				IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
-				periph->pins[status].description, (void *) periph)) {
+	periph->status = gsm_generic_status;
 
-		printk(KERN_ERR "can not request irq for status pin\n");
-		BUG(); /* not fatal */
-		result = -ENODEV;
-		goto done;
-        }
+	indigo_set_keep_on_handler(periph, status_pin_handler);
 
 	indigo_configure_pin(periph, INDIGO_FUNCTION_PWRKEY, /* mandatory */ true);
 
 	/* it doesn't really matter if it's not found */
 	indigo_configure_pin(periph, INDIGO_FUNCTION_POWER, /* mandatory */ false);
 
-	periph->status = gsm_generic_status;
-
-done:
 	TRACE_EXIT_RES(result);
 	return result;
 }
 
 /* FIXME error handling through int result */
-static int indigo_generic_reset(const struct gpio_peripheral *periph)
+static int indigo_generic_reset(struct gpio_peripheral *periph)
 {
 	int result = 0;
 
@@ -409,7 +442,7 @@ out:
 	return result;
 }
 
-int indigo_gpio_do_nothing(const struct gpio_peripheral *periph)
+int indigo_gpio_do_nothing(struct gpio_peripheral *periph)
 {
 	TRACE_ENTRY();
 
@@ -433,7 +466,7 @@ int indigo_do_nothing_setup(struct gpio_peripheral *periph)
 }
 EXPORT_SYMBOL(indigo_do_nothing_setup);
 
-static int indigo_check_and_power_on(const struct gpio_peripheral *periph)
+static int indigo_check_and_power_on(struct gpio_peripheral *periph)
 {
 	int result = 0;
 
@@ -463,7 +496,7 @@ static int indigo_check_and_power_on(const struct gpio_peripheral *periph)
 
 
 /* p.3.4.1.1, figure 3 */
-int gsm_sim508_power_on(const struct gpio_peripheral *periph)
+int gsm_sim508_power_on(struct gpio_peripheral *periph)
 {
 	int status = 0;
 	int result = 0;
@@ -511,7 +544,7 @@ out:
 }
 
 /* p.3.4.2.1. figure 4 */
-int gsm_sim508_power_off(const struct gpio_peripheral *periph)
+int gsm_sim508_power_off(struct gpio_peripheral *periph)
 {
 	int status;
 	int result = 0;
@@ -558,7 +591,7 @@ out:
 	return result; /* 0 is OK code, 1 -- is error */
 }
 
-int gsm_sim508_reset(const struct gpio_peripheral *periph)
+int gsm_sim508_reset(struct gpio_peripheral *periph)
 {
 	return indigo_generic_reset(periph);
 }
@@ -597,7 +630,7 @@ EXPORT_SYMBOL(gsm_sim508_setup);
  */
 
 /* figure 9 */
-int gsm_sim900D_power_on(const struct gpio_peripheral *periph)
+int gsm_sim900D_power_on(struct gpio_peripheral *periph)
 {
 	int status = 0;
 	int result = 0;
@@ -648,7 +681,7 @@ out:
 }
 
 /* figure 10 */
-int gsm_sim900D_power_off(const struct gpio_peripheral *periph)
+int gsm_sim900D_power_off(struct gpio_peripheral *periph)
 {
 	int status;
 	int result;
@@ -693,7 +726,7 @@ out:
 	return result; /* 0 is OK code, 1 -- is error */
 }
 
-int gsm_sim900D_reset(const struct gpio_peripheral *periph)
+int gsm_sim900D_reset(struct gpio_peripheral *periph)
 {
 	BUG_ON(periph == NULL);
 
@@ -737,7 +770,7 @@ EXPORT_SYMBOL(gsm_sim900D_setup);
  */
 
 /* figure 9, pg 25 */
-int gsm_sim900_power_on(const struct gpio_peripheral *periph)
+int gsm_sim900_power_on(struct gpio_peripheral *periph)
 {
 	int status = 0;
 	int result;
@@ -781,6 +814,11 @@ int gsm_sim900_power_on(const struct gpio_peripheral *periph)
 	status = periph->status(periph);
 	PRINT(KERN_ERR, "status pin is %d", status);
 
+	if (status)
+		periph->current_state = GPIO_PERIPH_STATE_SIM900_ON;
+	else
+		periph->current_state = GPIO_PERIPH_STATE_SIM900_OFF;
+
 	result = !status;
 
 out:
@@ -788,7 +826,7 @@ out:
 	return result; /* 0 is OK code, 1 -- error */
 }
 
-int gsm_sim900_power_off(const struct gpio_peripheral *periph)
+int gsm_sim900_power_off(struct gpio_peripheral *periph)
 {
 	int status;
 	int result;
@@ -805,7 +843,10 @@ int gsm_sim900_power_off(const struct gpio_peripheral *periph)
 		{"3", "wait for > 1.7 seconds",
 		 periph, INDIGO_FUNCTION_STATUS, 0, true, 0, 10000},
 
-		{"4", "finally, status pin is 0 when all is ok",
+		{"4", "turn off gsm enable pin",
+		 periph, INDIGO_FUNCTION_POWER, 0, true, 1, 0},
+
+		{"5", "finally, status pin is 0 when all is ok",
 		 NULL, INDIGO_FUNCTION_NO_FUNCTION, 0, true, 0, 0}
 	};
 
@@ -827,6 +868,11 @@ int gsm_sim900_power_off(const struct gpio_peripheral *periph)
 	status = periph->status(periph);
 	PRINT(KERN_ERR, "status pin is %d", status);
 
+	if (status)
+		periph->current_state = GPIO_PERIPH_STATE_SIM900_ON;
+	else
+		periph->current_state = GPIO_PERIPH_STATE_SIM900_OFF;
+
 	result = status;
 out:
 	TRACE_EXIT_RES(result);
@@ -834,14 +880,189 @@ out:
 
 }
 
-int gsm_sim900_reset(const struct gpio_peripheral *periph)
+int gsm_sim900_reset(struct gpio_peripheral *periph)
 {
 	return indigo_generic_reset(periph);
 }
 
-int gsm_sim900_setup(struct gpio_peripheral *periph)
+/**
+ * индекс состояния по названию для данного устройства
+ * -ENOENT если не нашли
+ */
+static int state_lookup_by_name(struct gpio_peripheral *periph, const char *name)
+{
+	int i = 0;
+	int found_index = -ENOENT;
+
+	BUG_ON(periph == NULL);
+
+	if (periph->state_table == NULL) {
+		printk(KERN_ERR "searching in non-existent state table for device %s\n", periph->name);
+		goto out;
+	}
+
+	while (strlen(periph->state_table[i].name) > 0 && i < 20 /* safeguard */) {
+		if (!strcmp(periph->state_table[i].name, name)) {
+			found_index = i;
+			break;
+		}
+		i++;
+	}
+
+out:
+	return found_index;
+}
+
+/*
+ * -EINVAL для запрещённых состояний,
+ * -EAGAIN для текущих состояний,
+ * 0 если получилось,
+ * 1 -- не получилось
+ *
+ * функция синхронная
+ */
+int gsm_sim900_state_transition(struct gpio_peripheral *periph, int state)
 {
 	int result = 0;
+
+	TRACE_ENTRY();
+
+	BUG_ON(periph == NULL);
+
+	if (periph->current_state == state) {
+		printk(KERN_INFO "trying to enter the same state for periph %s\n", periph->name);
+		result = -EAGAIN;
+		goto out;
+	}
+
+	switch (periph->current_state) {
+	case GPIO_PERIPH_STATE_SIM900_OFF:
+
+		switch (state) {
+		case GPIO_PERIPH_STATE_SIM900_ON:
+			periph->power_on(periph);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_ON_KEEP:
+			indigo_set_keep_on_handler(periph, keep_turned_on_handler_irq);
+			periph->power_on(periph);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_FIRMWARE_PREPARE:
+			indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_PWRKEY, 0, true);
+			msleep(10);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_FIRMWARE_LOAD:
+			result = -EINVAL;
+			break;
+		};
+		break;
+	case GPIO_PERIPH_STATE_SIM900_ON:
+		switch (state) {
+		case GPIO_PERIPH_STATE_SIM900_OFF:
+			periph->power_off(periph);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_ON_KEEP:
+			indigo_set_keep_on_handler(periph, keep_turned_on_handler_irq);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_FIRMWARE_PREPARE:
+			periph->power_off(periph);
+			indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_PWRKEY, 0, true);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_FIRMWARE_LOAD:
+			result = -EINVAL;
+			break;
+		}
+		break;
+	case GPIO_PERIPH_STATE_SIM900_ON_KEEP:
+		switch (state) {
+		case GPIO_PERIPH_STATE_SIM900_OFF:
+			indigo_set_keep_on_handler(periph, NULL);
+			periph->power_off(periph);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_ON:
+			indigo_set_keep_on_handler(periph, NULL);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_FIRMWARE_PREPARE:
+			indigo_set_keep_on_handler(periph, NULL);
+			periph->power_off(periph);
+			indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_PWRKEY, 0, true);
+			msleep(10);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_FIRMWARE_LOAD:
+			result = -EINVAL;
+			break;
+		}
+		break;
+	case GPIO_PERIPH_STATE_SIM900_FIRMWARE_PREPARE:
+		switch (state) {
+		case GPIO_PERIPH_STATE_SIM900_OFF:
+			indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_PWRKEY, 1, true);
+			msleep(10);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_ON:
+			periph->power_on(periph);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_ON_KEEP:
+			periph->power_on(periph);
+			indigo_set_keep_on_handler(periph, keep_turned_on_handler_irq);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_FIRMWARE_LOAD:
+			indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_POWER, 1, true);
+			break;
+		}
+		break;
+	case GPIO_PERIPH_STATE_SIM900_FIRMWARE_LOAD:
+		switch (state) {
+		case GPIO_PERIPH_STATE_SIM900_OFF:
+			indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_POWER, 0, true);
+			indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_PWRKEY, 1, true);
+			msleep(10);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_ON:
+			indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_POWER, 0, true);
+			msleep(100); /* ускоренное выключение */
+			periph->power_on(periph); /* pwrkey is toggled there */
+			break;
+		case GPIO_PERIPH_STATE_SIM900_ON_KEEP:
+			indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_POWER, 0, true);
+			msleep(100); /* ускоренное выключение wi*/
+			periph->power_on(periph);
+			break;
+		case GPIO_PERIPH_STATE_SIM900_FIRMWARE_PREPARE:
+			indigo_gpioperiph_set_output(periph, INDIGO_FUNCTION_POWER, 0, true);
+			msleep(100);
+			break;
+		}
+		break;
+
+	default:
+		printk(KERN_ERR "non-possible case for state %d\n", periph->current_state);
+		panic("non possible case %d for device %s\n", state, periph->name);
+	}
+
+	if (!result)
+		periph->current_state = state;
+
+out:
+	TRACE_EXIT_RES(result);
+	return result;
+
+}
+
+
+int gsm_sim900_setup(struct gpio_peripheral *periph)
+{
+
+	int result = 0;
+
+	static struct indigo_gpioperiph_state_desc_t states[] = {
+		{"off", GPIO_PERIPH_STATE_SIM900_OFF},
+		{"on", GPIO_PERIPH_STATE_SIM900_ON},
+		{"on-keep", GPIO_PERIPH_STATE_SIM900_ON_KEEP},
+		{"firmware-prepare", GPIO_PERIPH_STATE_SIM900_FIRMWARE_PREPARE},
+		{"firmware-load", GPIO_PERIPH_STATE_SIM900_FIRMWARE_LOAD},
+		{0, 255}
+	};
+
 
 	TRACE_ENTRY();
 
@@ -850,6 +1071,7 @@ int gsm_sim900_setup(struct gpio_peripheral *periph)
 	periph->power_on = gsm_sim900_power_on;
 	periph->power_off = gsm_sim900_power_off;
 	periph->check_and_power_on = indigo_check_and_power_on;
+	periph->state_transition = gsm_sim900_state_transition;
 
 	result = gsm_generic_simcom_setup(periph, keep_turned_on_handler_irq);
 	if (result) {
@@ -857,7 +1079,12 @@ int gsm_sim900_setup(struct gpio_peripheral *periph)
 		goto out;
 	}
 
-	indigo_peripheral_create_command(periph, INDIGO_COMMAND_CHECK_AND_POWER_ON);
+	periph->state_table = kmalloc(sizeof(states), GFP_KERNEL);
+	memcpy(periph->state_table, states, sizeof(states));
+
+	indigo_peripheral_create_command_arg(periph,
+					INDIGO_COMMAND_STATE_TRANSITION,
+					GPIO_PERIPH_STATE_SIM900_ON_KEEP);
 
 out:
 	TRACE_EXIT_RES(result);
@@ -875,7 +1102,7 @@ EXPORT_SYMBOL(gsm_sim900_setup);
  *
  * Manual used is Sim508 Hardware Design 2.08
  */
-static int gps_sim508_status(const struct gpio_peripheral *periph)
+static int gps_sim508_status(struct gpio_peripheral *periph)
 {
 	int power_pin;
 	int result = 0;
@@ -887,14 +1114,14 @@ static int gps_sim508_status(const struct gpio_peripheral *periph)
 	power_pin = indigo_gpioperiph_get_pin_by_function(periph, INDIGO_FUNCTION_POWER);
 
 	result = indigo_pin_active_value(&periph->pins[power_pin],
-		gpio_get_value(periph->pins[power_pin].pin_no));
+					gpio_get_value(periph->pins[power_pin].pin_no));
 
 	TRACE_EXIT_RES(result);
 	return result;
 }
 
 /* figure 28 */
-int gps_sim508_power_on(const struct gpio_peripheral *periph)
+int gps_sim508_power_on(struct gpio_peripheral *periph)
 {
 	int status;
 	int result;
@@ -927,7 +1154,7 @@ out:
 }
 
 /* no precise way to nicely turn this off */
-int gps_sim508_power_off(const struct gpio_peripheral *periph)
+int gps_sim508_power_off(struct gpio_peripheral *periph)
 {
 	TRACE_ENTRY();
 
@@ -946,7 +1173,7 @@ int gps_sim508_power_off(const struct gpio_peripheral *periph)
 	return 0;
 }
 
-int gps_sim508_reset(const struct gpio_peripheral *periph)
+int gps_sim508_reset(struct gpio_peripheral *periph)
 {
 	int result = 0;
 
@@ -989,7 +1216,7 @@ EXPORT_SYMBOL(gps_sim508_setup);
  * EB-500 GPS Module (Device 1.0)
  *
  */
-static int gps_eb500_power_on(const struct gpio_peripheral *periph)
+static int gps_eb500_power_on(struct gpio_peripheral *periph)
 {
 	int result = 0;
 
@@ -1004,7 +1231,7 @@ static int gps_eb500_power_on(const struct gpio_peripheral *periph)
 	return result;
 }
 
-static int gps_eb500_power_off(const struct gpio_peripheral *periph)
+static int gps_eb500_power_off(struct gpio_peripheral *periph)
 {
 	int result = 0;
 
@@ -1019,7 +1246,7 @@ static int gps_eb500_power_off(const struct gpio_peripheral *periph)
 	return result;
 }
 
-static int gps_eb500_status(const struct gpio_peripheral *periph)
+static int gps_eb500_status(struct gpio_peripheral *periph)
 {
 	int result = 0;
 	int power_pin;
@@ -1030,12 +1257,12 @@ static int gps_eb500_status(const struct gpio_peripheral *periph)
 	BUG_ON(periph == NULL);
 
 	power_pin = indigo_gpioperiph_get_pin_by_function(periph,
-		INDIGO_FUNCTION_POWER);
+							INDIGO_FUNCTION_POWER);
 
 	power_pin_value = gpio_get_value(periph->pins[power_pin].pin_no);
 
 	result = (power_pin_value ==
-		  indigo_pin_active_value(&periph->pins[power_pin], power_pin_value));
+		indigo_pin_active_value(&periph->pins[power_pin], power_pin_value));
 
 	TRACE_EXIT_RES(result);
 	return result;
@@ -1071,7 +1298,7 @@ EXPORT_SYMBOL(gps_eb500_setup);
  *
  */
 
-static int gps_nv08c_csm_power_on(const struct gpio_peripheral *periph)
+static int gps_nv08c_csm_power_on(struct gpio_peripheral *periph)
 {
 	int result = 0;
 
@@ -1085,7 +1312,7 @@ static int gps_nv08c_csm_power_on(const struct gpio_peripheral *periph)
 	return result;
 }
 
-int gps_nv08c_csm_power_off(const struct gpio_peripheral *periph)
+int gps_nv08c_csm_power_off(struct gpio_peripheral *periph)
 {
 	int result = 0;
 
@@ -1100,16 +1327,16 @@ int gps_nv08c_csm_power_off(const struct gpio_peripheral *periph)
 }
 
 /*
-2.4.2. Сброс
-Входной сигнал #RESET (#RESET, вывод No25) в NV08C-CSM может быть использован внешней системой
-* для принудительного сброса цифровой части модуля. Для сброса цифровой части модуля внешняя
-* система должна обеспечить на входе #RESET нулевой импульс со следующими характеристиками:
- уровень сигнала не выше 0.3хVCCIO
- длительность импульса не менее 1 мкс.
-При этом встроенный в модуль супервизор будет удерживать цифровую часть модуля в
-состоянии #RESET не менее 140 мс после установки уровня сигнала #RESET из «0» в «1»
+  2.4.2. Сброс
+  Входной сигнал #RESET (#RESET, вывод No25) в NV08C-CSM может быть использован внешней системой
+  * для принудительного сброса цифровой части модуля. Для сброса цифровой части модуля внешняя
+  * система должна обеспечить на входе #RESET нулевой импульс со следующими характеристиками:
+  уровень сигнала не выше 0.3хVCCIO
+  длительность импульса не менее 1 мкс.
+  При этом встроенный в модуль супервизор будет удерживать цифровую часть модуля в
+  состоянии #RESET не менее 140 мс после установки уровня сигнала #RESET из «0» в «1»
 */
-int gps_nv08c_csm_reset(const struct gpio_peripheral *periph)
+int gps_nv08c_csm_reset(struct gpio_peripheral *periph)
 {
 	struct indigo_gpio_sequence_step steps[] = {
 
@@ -1136,7 +1363,7 @@ int gps_nv08c_csm_reset(const struct gpio_peripheral *periph)
 	return 0; /* 0 is OK code, 1 -- is error */
 }
 
-static int gps_nv08c_csm_status(const struct gpio_peripheral *periph)
+static int gps_nv08c_csm_status(struct gpio_peripheral *periph)
 {
 	int result = 0;
 	int power_pin;
@@ -1147,7 +1374,7 @@ static int gps_nv08c_csm_status(const struct gpio_peripheral *periph)
 	BUG_ON(periph == NULL);
 
 	power_pin = indigo_gpioperiph_get_pin_by_function(periph,
-		INDIGO_FUNCTION_POWER);
+							INDIGO_FUNCTION_POWER);
 
 	power_pin_value = gpio_get_value(periph->pins[power_pin].pin_no);
 
@@ -1189,17 +1416,17 @@ EXPORT_SYMBOL(gps_nv08c_csm_setup);
  * then call the show function for that specific object.
  */
 static ssize_t gpio_peripheral_attr_show(struct kobject *kobj,
-                             struct attribute *attr,
-                             char *buf)
+					struct attribute *attr,
+					char *buf)
 {
-        struct gpio_peripheral_attribute *attribute;
-        struct gpio_peripheral_obj *peripheral_obj;
+	struct gpio_peripheral_attribute *attribute;
+	struct gpio_peripheral_obj *peripheral_obj;
 	int ret = -EIO;
 
-        attribute = to_gpio_peripheral_attr(attr);
-        peripheral_obj = to_gpio_peripheral_obj(kobj);
+	attribute = to_gpio_peripheral_attr(attr);
+	peripheral_obj = to_gpio_peripheral_obj(kobj);
 
-        if (attribute->show)
+	if (attribute->show)
 		ret = attribute->show(peripheral_obj, attribute, buf);
 
 	return ret;
@@ -1210,20 +1437,20 @@ static ssize_t gpio_peripheral_attr_show(struct kobject *kobj,
  * sysfs "store" is requested (when a value is written to a file.)
  */
 static ssize_t gpio_peripheral_attr_store(struct kobject *kobj,
-                              struct attribute *attr,
-                              const char *buf, size_t len)
+					struct attribute *attr,
+					const char *buf, size_t len)
 {
-        struct gpio_peripheral_attribute *attribute;
-        struct gpio_peripheral_obj *peripheral_obj;
+	struct gpio_peripheral_attribute *attribute;
+	struct gpio_peripheral_obj *peripheral_obj;
 	int ret = -EIO;
 
-        attribute = to_gpio_peripheral_attr(attr);
-        peripheral_obj = to_gpio_peripheral_obj(kobj);
+	attribute = to_gpio_peripheral_attr(attr);
+	peripheral_obj = to_gpio_peripheral_obj(kobj);
 
-        if (attribute->store)
-                ret = attribute->store(peripheral_obj, attribute, buf, len);
+	if (attribute->store)
+		ret = attribute->store(peripheral_obj, attribute, buf, len);
 
-        return ret;
+	return ret;
 }
 
 /*
@@ -1282,6 +1509,9 @@ static void indigo_peripheral_process_command(struct work_struct *command)
 	case INDIGO_COMMAND_CHECK_AND_POWER_ON:
 		peripheral->check_and_power_on(peripheral);
 		break;
+	case INDIGO_COMMAND_STATE_TRANSITION:
+		peripheral->state_transition(peripheral, gp_cmd->argument);
+		break;
 	default:
 		printk(KERN_ERR "unknown command supplied\n");
 	}
@@ -1299,6 +1529,8 @@ static void indigo_peripheral_free_completed_commands(struct gpio_peripheral_obj
 
 	TRACE_ENTRY();
 
+	// FIXME locking
+
 	list_for_each_entry_safe(gp_cmd, tmp, &peripheral_obj->command_list, command_sequence) {
 		if (completion_done(&gp_cmd->complete)) {
 			list_del(&gp_cmd->command_sequence);
@@ -1309,12 +1541,18 @@ static void indigo_peripheral_free_completed_commands(struct gpio_peripheral_obj
 	TRACE_EXIT();
 }
 
+struct completion *indigo_peripheral_create_command(struct gpio_peripheral *peripheral,
+						enum indigo_gpioperiph_command_t command)
+{
+	return indigo_peripheral_create_command_arg(peripheral, command, -1);
+}
+
 /* создать, поместить в очередь
  *
  * CONTEXT: atomic or process
  */
-struct completion *indigo_peripheral_create_command(struct gpio_peripheral *peripheral,
-	enum indigo_gpioperiph_command_t command)
+struct completion *indigo_peripheral_create_command_arg(struct gpio_peripheral *peripheral,
+							enum indigo_gpioperiph_command_t command, int argument)
 {
 	struct gpio_peripheral_command *gp_cmd;
 	struct gpio_peripheral_obj *peripheral_obj;
@@ -1335,6 +1573,7 @@ struct completion *indigo_peripheral_create_command(struct gpio_peripheral *peri
 
 	gp_cmd->cmd = command;
 	gp_cmd->peripheral = peripheral;
+	gp_cmd->argument = argument;
 
 	INIT_WORK(&gp_cmd->work, indigo_peripheral_process_command);
 	INIT_LIST_HEAD(&gp_cmd->command_sequence);
@@ -1355,7 +1594,7 @@ out:
  * which is not our case. At least for now
  */
 static ssize_t status_show(struct gpio_peripheral_obj *peripheral_obj, struct gpio_peripheral_attribute *attr,
-                        char *buf)
+			char *buf)
 {
 	struct gpio_peripheral *periph;
 	ssize_t len;
@@ -1367,41 +1606,86 @@ static ssize_t status_show(struct gpio_peripheral_obj *peripheral_obj, struct gp
 	periph = &peripheral_obj->peripheral;
 	(void) attr;
 
-	BUG_ON(periph == NULL);
-
-	len = sprintf(buf, "%s\n", periph->status(periph) == 1 ? "on" : "off");
+	if (periph->state_table == NULL)
+		len = sprintf(buf, "%s\n", periph->status(periph) == 1 ? "on" : "off");
+	else {
+		BUG_ON(periph->current_state < 0);
+		len = sprintf(buf, "%s\n", periph->state_table[periph->current_state].name);
+	}
 
 	TRACE_EXIT();
-        return len;
+	return len;
 }
 
+/* ищем записанное слово в таблице состояний, получаем номер состояния
+ * и ждём перехода в состояние */
+static ssize_t status_store(struct gpio_peripheral_obj
+			*peripheral_obj,
+			struct gpio_peripheral_attribute *attr,
+			const char *buf, size_t count)
+{
+	int state_number = -1;
+	struct completion *complete;
+	char state_name_buf[200];
+
+	(void) attr;
+
+	TRACE_ENTRY();
+
+	BUG_ON(peripheral_obj == NULL);
+
+	if (peripheral_obj->peripheral.state_table == NULL)
+		goto out;
+
+	sscanf(buf, "%s\n", state_name_buf);
+	printk(KERN_ERR "got request for state %s\n", state_name_buf);
+
+	state_number = state_lookup_by_name(&peripheral_obj->peripheral, state_name_buf);
+
+	if (state_number < 0) {
+		count = -EINVAL;
+		goto out;
+	}
+
+	complete = indigo_peripheral_create_command_arg(&peripheral_obj->peripheral,
+							INDIGO_COMMAND_STATE_TRANSITION,
+							state_number);
+	wait_for_completion_interruptible(complete);
+	indigo_peripheral_free_completed_commands(peripheral_obj);
+
+out:
+	TRACE_EXIT();
+	return count;
+}
+
+
 static ssize_t dummy_store(struct gpio_peripheral_obj *periph_obj, struct gpio_peripheral_attribute *attr,
-                         const char *buf, size_t count)
+			const char *buf, size_t count)
 {
 	(void) periph_obj;
 	(void) attr;
 	(void) buf;
-        return count; /* do nothing at all */
+	return count; /* do nothing at all */
 }
 
 static ssize_t dummy_show(struct gpio_peripheral_obj *periph_obj, struct gpio_peripheral_attribute *attr,
-                         char *buf)
+			char *buf)
 {
 	(void) periph_obj;
 	(void) attr;
 	(void) buf;
-        return 0; /* do nothing at all */
+	return 0; /* do nothing at all */
 }
 
 /*
-ssize_t (*show)(struct gpio_peripheral_obj *peripheral_obj,
-		struct gpio_peripheral_attribute *attr,
-		char *buf, size_t count);
+  ssize_t (*show)(struct gpio_peripheral_obj *peripheral_obj,
+  struct gpio_peripheral_attribute *attr,
+  char *buf, size_t count);
 */
 /* доступ к GPIO на чтение */
 ssize_t gpio_show(struct gpio_peripheral_obj *peripheral_obj,
-		  struct gpio_peripheral_attribute *attr,
-		  char *buf)
+		struct gpio_peripheral_attribute *attr,
+		char *buf)
 {
 	int len;
 	struct indigo_periph_pin *pin;
@@ -1413,7 +1697,7 @@ ssize_t gpio_show(struct gpio_peripheral_obj *peripheral_obj,
 	len = sprintf(buf, "%d\n", gpio_get_value(pin->pin_no));
 
 	TRACE_EXIT();
-        return len;
+	return len;
 }
 
 static ssize_t gpio_store(struct gpio_peripheral_obj *periph_obj,
@@ -1449,12 +1733,12 @@ static ssize_t gpio_store(struct gpio_peripheral_obj *periph_obj,
 
 out:
 	TRACE_EXIT();
-        return count; /* do nothing at all */
+	return count; /* do nothing at all */
 }
 
 
 static ssize_t power_on_store(struct gpio_peripheral_obj *peripheral_obj, struct gpio_peripheral_attribute *attr,
-                         const char *buf, size_t count)
+			const char *buf, size_t count)
 {
 	struct completion *complete;
 	TRACE_ENTRY();
@@ -1470,11 +1754,11 @@ static ssize_t power_on_store(struct gpio_peripheral_obj *peripheral_obj, struct
 
 
 	TRACE_EXIT();
-        return count;
+	return count;
 }
 
 static ssize_t check_and_power_on_store(struct gpio_peripheral_obj *peripheral_obj, struct gpio_peripheral_attribute *attr,
-                         const char *buf, size_t count)
+					const char *buf, size_t count)
 {
 	struct completion *complete;
 	TRACE_ENTRY();
@@ -1489,11 +1773,11 @@ static ssize_t check_and_power_on_store(struct gpio_peripheral_obj *peripheral_o
 	indigo_peripheral_free_completed_commands(peripheral_obj);
 
 	TRACE_EXIT();
-        return count;
+	return count;
 }
 
 static ssize_t power_off_store(struct gpio_peripheral_obj *peripheral_obj, struct gpio_peripheral_attribute *attr,
-                         const char *buf, size_t count)
+			const char *buf, size_t count)
 {
 	struct completion *complete;
 	TRACE_ENTRY();
@@ -1508,12 +1792,12 @@ static ssize_t power_off_store(struct gpio_peripheral_obj *peripheral_obj, struc
 	indigo_peripheral_free_completed_commands(peripheral_obj);
 
 	TRACE_EXIT();
-        return count;
+	return count;
 
 }
 
 static ssize_t reset_store(struct gpio_peripheral_obj *peripheral_obj, struct gpio_peripheral_attribute *attr,
-                         const char *buf, size_t count)
+			const char *buf, size_t count)
 {
 	struct completion *complete;
 	TRACE_ENTRY();
@@ -1528,14 +1812,14 @@ static ssize_t reset_store(struct gpio_peripheral_obj *peripheral_obj, struct gp
 	indigo_peripheral_free_completed_commands(peripheral_obj);
 
 	TRACE_EXIT();
-        return count;
+	return count;
 
 }
 
 /* Our custom sysfs_ops that we will associate with our ktype later on */
 static const struct sysfs_ops gpio_peripheral_sysfs_ops = {
-        .show = gpio_peripheral_attr_show,
-        .store = gpio_peripheral_attr_store,
+	.show = gpio_peripheral_attr_show,
+	.store = gpio_peripheral_attr_store,
 };
 
 /* здесь, похоже, нужна будет динамическая инициализация, ничего страшного */
@@ -1544,7 +1828,7 @@ static struct gpio_peripheral_attribute gpio_peripheral_attributes_default[] =
 	__ATTR(power_on, 0666, dummy_show, power_on_store),
 	__ATTR(power_off, 0666, dummy_show, power_off_store),
 	__ATTR(reset, 0666, dummy_show, reset_store),
-	__ATTR(status, 0666, status_show, dummy_store),
+	__ATTR(status, 0666, status_show, status_store),
 	__ATTR(check_and_power_on, 0666, dummy_show, check_and_power_on_store)
 };
 
@@ -1558,7 +1842,7 @@ static struct attribute *gpio_peripheral_attributes_default_sysfs[] = {
 	&gpio_peripheral_attributes_default[2].attr,
 	&gpio_peripheral_attributes_default[3].attr,
 	&gpio_peripheral_attributes_default[4].attr,
-        NULL,   /* need to NULL terminate the list of attributes */
+	NULL,   /* need to NULL terminate the list of attributes */
 };
 
 /*
@@ -1567,9 +1851,9 @@ static struct attribute *gpio_peripheral_attributes_default_sysfs[] = {
  * whenever a kobject of this type is registered with the kernel.
  */
 static struct kobj_type gpio_peripheral_ktype = {
-        .sysfs_ops = &gpio_peripheral_sysfs_ops,
-        .release = indigo_gpio_peripheral_obj_release,
-        .default_attrs = gpio_peripheral_attributes_default_sysfs
+	.sysfs_ops = &gpio_peripheral_sysfs_ops,
+	.release = indigo_gpio_peripheral_obj_release,
+	.default_attrs = gpio_peripheral_attributes_default_sysfs
 };
 
 static struct kset *indigo_kset;
@@ -1577,24 +1861,24 @@ static LIST_HEAD(kobjects);
 
 struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *peripheral)
 {
-        struct gpio_peripheral_obj *peripheral_obj = NULL;
+	struct gpio_peripheral_obj *peripheral_obj = NULL;
 	struct sysfs_dirent *value_sd = NULL;
-        int retval;
+	int retval;
 	int i;
 
 	if (peripheral->name == NULL)
 		goto out;
 
-        /* allocate the memory for the whole object */
-        peripheral_obj = kzalloc(sizeof(*peripheral_obj), GFP_KERNEL);
-        if (!peripheral_obj)
-                goto out;
+	/* allocate the memory for the whole object */
+	peripheral_obj = kzalloc(sizeof(*peripheral_obj), GFP_KERNEL);
+	if (!peripheral_obj)
+		goto out;
 
-        /*
-         * As we have a kset for this kobject, we need to set it before calling
-         * the kobject core.
-         */
-        peripheral_obj->kobj.kset = indigo_kset;
+	/*
+	 * As we have a kset for this kobject, we need to set it before calling
+	 * the kobject core.
+	 */
+	peripheral_obj->kobj.kset = indigo_kset;
 
 	/* copy our static structure to kmalloc memory */
 	peripheral_obj->peripheral = *peripheral;
@@ -1604,15 +1888,15 @@ struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *p
 	/* implies that now peripheral->name should be unique */
 	peripheral_obj->wq = alloc_ordered_workqueue(peripheral->name, 0);
 
-        /*
-         * Initialize and add the kobject to the kernel.  All the default files
-         * will be created here.  As we have already specified a kset for this
-         * kobject, we don't have to set a parent for the kobject, the kobject
-         * will be placed beneath that kset automatically.
-         */
-        retval = kobject_init_and_add(&peripheral_obj->kobj,
-		&gpio_peripheral_ktype, NULL, "%s", peripheral->name);
-        if (retval)
+	/*
+	 * Initialize and add the kobject to the kernel.  All the default files
+	 * will be created here.  As we have already specified a kset for this
+	 * kobject, we don't have to set a parent for the kobject, the kobject
+	 * will be placed beneath that kset automatically.
+	 */
+	retval = kobject_init_and_add(&peripheral_obj->kobj,
+				&gpio_peripheral_ktype, NULL, "%s", peripheral->name);
+	if (retval)
 		goto out_put;
 
 	/* --------------------------------------- */
@@ -1667,14 +1951,14 @@ struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *p
 	peripheral_obj->peripheral.setup(&peripheral_obj->peripheral);
 	/* ------------------------------------------ */
 
-        /*
-         * We are always responsible for sending the uevent that the kobject
-         * was added to the system.
-         */
-        kobject_uevent(&peripheral_obj->kobj, KOBJ_ADD);
+	/*
+	 * We are always responsible for sending the uevent that the kobject
+	 * was added to the system.
+	 */
+	kobject_uevent(&peripheral_obj->kobj, KOBJ_ADD);
 
 out:
-        return peripheral_obj;
+	return peripheral_obj;
 
 out_put:
 	kobject_put(&peripheral_obj->kobj);
@@ -1685,7 +1969,7 @@ out_put:
 
 static void destroy_gpio_peripheral_obj(struct gpio_peripheral_obj *gpio_peripheral_obj)
 {
-        kobject_put(&gpio_peripheral_obj->kobj);
+	kobject_put(&gpio_peripheral_obj->kobj);
 }
 
 /* единственный ужас -- 3 устройства */
@@ -1696,11 +1980,11 @@ static struct gpio_peripheral indigo_gpioperiph_platform_data[3];
 /* давайте пока забьём на модули -- нужно делать много деинициализаии, если его выгружать :-( */
 #if 0
 static struct platform_device indigo_gpioperiph_device = {
-        .name           = "indigo_gpioperiph",
-        .id             = -1,
-        .dev            = {
+	.name           = "indigo_gpioperiph",
+	.id             = -1,
+	.dev            = {
 		.platform_data = &indigo_gpioperiph_platform_data,
-        }
+	}
 };
 #endif
 
@@ -1713,13 +1997,13 @@ int indigo_gpio_peripheral_init(struct gpio_peripheral peripherals[3], int nr_de
 	int i;
 	struct gpio_peripheral_obj *periph_obj;
 
-        /*
-         * Create a kset with the name of "kset_example",
-         * located under /sys/kernel/
-         */
-        indigo_kset = kset_create_and_add("indigo", NULL, kernel_kobj);
-        if (!indigo_kset)
-                result = -EIO;
+	/*
+	 * Create a kset with the name of "kset_example",
+	 * located under /sys/kernel/
+	 */
+	indigo_kset = kset_create_and_add("indigo", NULL, kernel_kobj);
+	if (!indigo_kset)
+		result = -EIO;
 
 	memcpy(&indigo_gpioperiph_platform_data, peripherals, sizeof(peripherals[0]) * 3);
 
@@ -1732,13 +2016,13 @@ int indigo_gpio_peripheral_init(struct gpio_peripheral peripherals[3], int nr_de
 		}
 
 		printk(KERN_ERR "indigo gpioperiph: %s peripheral %s added\n",
-		       periph_obj->peripheral.name, periph_obj->peripheral.description);
+			periph_obj->peripheral.name, periph_obj->peripheral.description);
 	}
 
 	//	platform_device_register(&indigo_gpioperiph_device);
 
 out:
-        return result;
+	return result;
 }
 
 void indigo_gpio_peripheral_exit(void)
@@ -1749,7 +2033,7 @@ void indigo_gpio_peripheral_exit(void)
 		destroy_gpio_peripheral_obj(obj);
 		list_del(&obj->kobject_item);
 	}
-        kset_unregister(indigo_kset);
+	kset_unregister(indigo_kset);
 }
 
 EXPORT_SYMBOL(indigo_gpio_peripheral_init);

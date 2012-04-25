@@ -72,7 +72,21 @@ enum indigo_gpioperiph_command_t {
 	INDIGO_COMMAND_POWER_ON,
 	INDIGO_COMMAND_POWER_OFF,
 	INDIGO_COMMAND_RESET,
-	INDIGO_COMMAND_CHECK_AND_POWER_ON /* проверить статус и если 0 -- включить */
+	INDIGO_COMMAND_CHECK_AND_POWER_ON, /* проверить статус и если 0 -- включить */
+	INDIGO_COMMAND_STATE_TRANSITION,
+};
+
+enum indigo_gpioperiph_sim900_state_t {
+	GPIO_PERIPH_STATE_SIM900_OFF = 0,
+	GPIO_PERIPH_STATE_SIM900_ON,
+	GPIO_PERIPH_STATE_SIM900_ON_KEEP,
+	GPIO_PERIPH_STATE_SIM900_FIRMWARE_PREPARE,
+	GPIO_PERIPH_STATE_SIM900_FIRMWARE_LOAD
+};
+
+struct indigo_gpioperiph_state_desc_t {
+	const char *name;
+	int state_number;
 };
 
 struct gpio_peripheral_obj;
@@ -115,14 +129,18 @@ struct gpio_peripheral {
 	const char *name; /* “gsm”, “gps”, маленькими буквами */
 	const char *description; /* “Sim900 GSM”, “NVC08-CSM”, etc */
 	int (*setup)(struct gpio_peripheral *);
-	int (*power_on)(const struct gpio_peripheral *); /*как включить устройство */
-	int (*power_off)(const struct gpio_peripheral *); /* как выключить устройство */
-	int (*reset)(const struct gpio_peripheral *); /* перевключить устройство */
-	int (*status)(const struct gpio_peripheral *); /* 1 -- включено, 0 -- выключено */
-	int (*check_and_power_on)(const struct gpio_peripheral *); /* включить, если не включено */
+	int (*power_on)(struct gpio_peripheral *); /*как включить устройство */
+	int (*power_off)(struct gpio_peripheral *); /* как выключить устройство */
+	int (*reset)(struct gpio_peripheral *); /* перевключить устройство */
+	int (*status)(struct gpio_peripheral *); /* 1 -- включено, 0 -- выключено */
+	int (*check_and_power_on)(struct gpio_peripheral *); /* включить, если не включено */
+	int (*state_transition)(struct gpio_peripheral *, int state); /* перевод в разные состояния */
 
 	/* необходимые для основных операций над устройством */
 	struct indigo_periph_pin pins[INDIGO_MAX_GPIOPERIPH_PIN_COUNT];
+
+	struct indigo_gpioperiph_state_desc_t *state_table; /* kmalloc for sim900, NULL for others */
+	int current_state;
 
 	/* куда-то ещё нужны списки аттрибутов, мб поиск по имени ещё */
 };
@@ -153,12 +171,14 @@ struct gpio_peripheral_command {
 
 	/* whom to notify when finished */
 	struct completion complete;
+
+	int argument; /* state in case state transition command */
 };
 
 struct indigo_gpio_sequence_step {
 	const char *step_no;
 	const char *step_desc;
-	const struct gpio_peripheral *periph; /* NULL for trace step */
+	struct gpio_peripheral *periph; /* NULL for trace step */
 	enum indigo_pin_function_t function;
 	int value;
 	int mandatory;
