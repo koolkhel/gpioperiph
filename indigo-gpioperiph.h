@@ -77,9 +77,9 @@ enum indigo_gpioperiph_command_t {
 };
 
 enum indigo_gpioperiph_sim900_state_t {
-	GPIO_PERIPH_STATE_SIM900_OFF = 0,
-	GPIO_PERIPH_STATE_SIM900_ON,
-	GPIO_PERIPH_STATE_SIM900_ON_KEEP,
+	GPIO_PERIPH_STATE_GSM_OFF = 0,
+	GPIO_PERIPH_STATE_GSM_ON,
+	GPIO_PERIPH_STATE_GSM_KEEP_ON,
 	GPIO_PERIPH_STATE_SIM900_FIRMWARE_PREPARE,
 	GPIO_PERIPH_STATE_SIM900_FIRMWARE_LOAD
 };
@@ -155,6 +155,7 @@ struct gpio_peripheral_obj {
 	/* очередь команд, выделять через alloc_workqueue,
 	 * max_active = 1 */
 	struct workqueue_struct *wq;
+	struct work_struct check_status_work;
 	spinlock_t command_list_lock; // spin_lock_init
 
 };
