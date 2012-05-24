@@ -61,10 +61,10 @@ enum indigo_pin_function_t {
 };
 
 enum indigo_gpioperiph_kind_t {
-	INDIGO_PERIPH_KIND_UNKNOWN,
-	INDIGO_PERIPH_KIND_GSM,
-	INDIGO_PERIPH_KIND_GPS,
-	INDIGO_PERIPH_KIND_POWER
+	INDIGO_PERIPH_KIND_UNKNOWN = 0,
+	INDIGO_PERIPH_KIND_GSM = 1,
+	INDIGO_PERIPH_KIND_GPS = 2,
+	INDIGO_PERIPH_KIND_POWER = 3,
 };
 
 enum indigo_gpioperiph_command_t {
@@ -142,7 +142,7 @@ struct gpio_peripheral {
 	struct indigo_gpioperiph_state_desc_t *state_table; /* kmalloc for sim900, NULL for others */
 	int current_state;
 
-	/* куда-то ещё нужны списки аттрибутов, мб поиск по имени ещё */
+	bool active; /* по умолчанию -- 0 */
 };
 
 struct gpio_peripheral_obj {

@@ -2116,6 +2116,10 @@ int indigo_gpio_peripheral_init(struct gpio_peripheral peripherals[3], int nr_de
 
 
 	for (i = 0; i < nr_devices; i++) {
+		if (!peripherals[i].active) {
+			printk(KERN_ERR "skipping device %s\n", peripherals[i].description);
+			continue;
+		}
 		printk(KERN_ERR "adding device %s\n", peripherals[i].description);
 		periph_obj = create_gpio_peripheral_obj(&peripherals[i]);
 		if (!periph_obj) {
