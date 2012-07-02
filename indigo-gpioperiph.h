@@ -79,14 +79,15 @@ enum indigo_gpioperiph_command_t {
 enum indigo_gpioperiph_sim900_state_t {
 	GPIO_PERIPH_STATE_GSM_OFF = 0,
 	GPIO_PERIPH_STATE_GSM_ON,
-	GPIO_PERIPH_STATE_GSM_KEEP_ON,
-	GPIO_PERIPH_STATE_SIM900_FIRMWARE_PREPARE,
-	GPIO_PERIPH_STATE_SIM900_FIRMWARE_LOAD
+	GPIO_PERIPH_STATE_GSM_KEEP_ON
 };
 
-struct indigo_gpioperiph_state_desc_t {
-	const char *name;
-	int state_number;
+enum indigo_gpioperiph_flag_t {
+	GPIO_PERIPH_FLAG_NOTHING = 0,
+	GPIO_PERIPH_FLAG_KEEP_ON = 1, /* заводится прерывание на ножку
+				       * статуса и так поддерживается
+				       * автоматически включённость *
+				       */
 };
 
 struct gpio_peripheral_obj;
@@ -134,15 +135,13 @@ struct gpio_peripheral {
 	int (*reset)(struct gpio_peripheral *); /* перевключить устройство */
 	int (*status)(struct gpio_peripheral *); /* 1 -- включено, 0 -- выключено */
 	int (*check_and_power_on)(struct gpio_peripheral *); /* включить, если не включено */
-	int (*state_transition)(struct gpio_peripheral *, int state); /* перевод в разные состояния */
 
 	/* необходимые для основных операций над устройством */
 	struct indigo_periph_pin pins[INDIGO_MAX_GPIOPERIPH_PIN_COUNT];
 
-	struct indigo_gpioperiph_state_desc_t *state_table; /* kmalloc for sim900, NULL for others */
-	int current_state;
-
 	bool active; /* по умолчанию -- 0 */
+
+	u32 flags;
 };
 
 struct gpio_peripheral_obj {
@@ -172,8 +171,6 @@ struct gpio_peripheral_command {
 
 	/* whom to notify when finished */
 	struct completion complete;
-
-	int argument; /* state in case state transition command */
 };
 
 struct indigo_gpio_sequence_step {
