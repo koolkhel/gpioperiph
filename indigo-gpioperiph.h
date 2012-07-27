@@ -213,7 +213,7 @@ struct indigo_gpio_sequence_step {
 
 /* собственно, мега-апи для инициализации */
 extern struct gpio_peripheral_obj *create_gpio_peripheral_obj(struct gpio_peripheral *peripheral);
-extern int indigo_gpio_peripheral_init(struct gpio_peripheral peripherals[3], int nr_devices);
+extern int indigo_gpio_peripheral_init(struct gpio_peripheral peripherals[3]);
 extern void indigo_gpio_peripheral_exit(void);
 
 extern int indigo_do_nothing_setup(struct gpio_peripheral *periph);

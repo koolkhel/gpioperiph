@@ -1868,14 +1868,15 @@ static struct platform_device indigo_gpioperiph_device = {
 };
 #endif
 
+/* nothing enabled by default */
+static struct gpio_peripheral enabled_peripherals[3];
+
 /**
  * Entry point of driver
  */
-int indigo_gpio_peripheral_init(struct gpio_peripheral peripherals[3], int nr_devices)
+int indigo_gpio_peripheral_init(struct gpio_peripheral peripherals[3])
 {
 	int result = 0;
-	int i;
-	struct gpio_peripheral_obj *periph_obj;
 
 	/*
 	 * Create a kset with the name of "kset_example",
@@ -1900,14 +1901,29 @@ int indigo_gpio_peripheral_init(struct gpio_peripheral peripherals[3], int nr_de
 		goto out;
 	}
 
+	memcpy(&enabled_peripherals[0], &peripherals[0], sizeof(peripherals[0]) * 3);
+	//	platform_device_register(&indigo_gpioperiph_device);
 
-	for (i = 0; i < nr_devices; i++) {
-		if (!peripherals[i].active) {
-			printk(KERN_ERR "skipping device %s\n", peripherals[i].description);
+
+out:
+	return result;
+}
+
+static int indigo_gpio_peripheral_enable(void)
+{
+	int result = 0;
+	int i;
+	struct gpio_peripheral_obj *periph_obj;
+
+	for (i = 0; i < 3; i++) {
+		if (!enabled_peripherals[i].active) {
+			printk(KERN_ERR "skipping device %s\n", enabled_peripherals[i].description);
 			continue;
 		}
-		printk(KERN_ERR "adding device %s\n", peripherals[i].description);
-		periph_obj = create_gpio_peripheral_obj(&peripherals[i]);
+
+		printk(KERN_ERR "adding device %s\n", enabled_peripherals[i].description);
+
+		periph_obj = create_gpio_peripheral_obj(&enabled_peripherals[i]);
 		if (!periph_obj) {
 			printk(KERN_ERR "fatal error during object creation\n");
 			result = -EINVAL;
@@ -1918,12 +1934,11 @@ int indigo_gpio_peripheral_init(struct gpio_peripheral peripherals[3], int nr_de
 			periph_obj->peripheral.name, periph_obj->peripheral.description);
 	}
 
-	//	platform_device_register(&indigo_gpioperiph_device);
-
-
 out:
 	return result;
 }
+
+device_initcall(indigo_gpio_peripheral_enable);
 
 void indigo_gpio_peripheral_exit(void)
 {
